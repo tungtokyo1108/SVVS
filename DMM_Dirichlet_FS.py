@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Mon May 24 16:13:19 2021
+Created on Sun May  9 13:17:59 2021
 
-@author: tungbioinfo
+@author: tungdang
 """
 
 import warnings
@@ -15,15 +15,13 @@ import numpy as np
 import pandas as pd
 from scipy.special import betaln, digamma, gammaln, logsumexp
 from scipy import linalg
+from joblib import Parallel, delayed
 
 from sklearn.utils import check_array, check_random_state
 from sklearn.utils.validation import _deprecate_positional_args, check_is_fitted
 from sklearn import cluster
 from sklearn.utils.extmath import row_norms
 
-#------------------------------------------------------------------------------
-# Help functions 
-#------------------------------------------------------------------------------
 
 def sigmoid(x):
     "Numerically stable sigmoid function."
@@ -39,601 +37,551 @@ def sigmoid(x):
                 z[i][j] = z[i][j] / (1 + z[i][j])
     return z
 
-def _estimate_gaussian_covariances_full(resp_gl, resp_mt, X, select, nk, means, reg_covar):
+"""
+def sigmoid(x,z,i,j):
+    "Numerically stable sigmoid function."
     
-    n_components, n_features = means.shape
-    resp = np.dot(resp_gl, resp_mt)
-    covariances = np.empty((n_components, n_features, n_features))
-    for k in range(n_components):
-        diff = X - means[k]
-        covariances[k] = np.dot(resp[:, k] * (select * diff).T, diff) / nk[k]
-        covariances[k].flat[::n_features + 1] += reg_covar
-    return covariances
-
-def _estimate_gaussian_covariances_tied(resp_gl, resp_mt, X, select, nk, means, reg_covar):
-    
-    avg_X2 = np.dot(X.T, X)
-    avg_means2 = np.dot((nk * means).T, means)
-    covariances = avg_X2 - avg_means2
-    covariances /= nk.sum(axis = 0)
-    covariances.flat[::len(covariances) + 1] += reg_covar
-    return covariances
-
-def _estimate_gaussian_covariances_diag(resp_gl, resp_mt, X, select, nk, means, reg_covar):
-    
-    resp = np.dot(resp_gl, resp_mt)
-    avg_X2 = np.dot(resp.T, select * X * X) / nk
-    avg_means2 = (np.dot(resp.T, select) * means ** 2) / nk
-    avg_X_means = means * np.dot(resp.T, select * X) / nk
-    
-    return avg_X2 - 2 * avg_X_means + avg_means2 + reg_covar
-
-def _compute_precision_cholesky(covariances, covariance_type):
-    
-    if covariance_type == 'full':
-        n_components, n_features, _ = covariances.shape 
-        precisions_chol = np.empty((n_components, n_features, n_features))
-        for k, covariance in enumerate(covariances):
-            cov_chol = linalg.cholesky(covariance, lower=True)
-            precisions_chol[k] = linalg.solve_triangular(cov_chol,
-                                                         np.eye(n_features),
-                                                         lower=True).T 
-    elif covariance_type == 'tied':
-        _, n_features = covariances.shape 
-        cov_chol = linalg.cholesky(covariances, lower=True)
-        precisions_chol = linalg.solve_triangular(cov_chol, np.eye(n_features),
-                                                  lower=True).T 
-    else: 
-        precisions_chol = 1. / np.sqrt(covariances)
-        #precisions_chol = np.nan_to_num(precisions_chol) + 1e-6
-        
-    return precisions_chol
-
-def _compute_log_det_cholesky(matrix_chol, covariance_type, n_features):
-    
-    if covariance_type == "full":
-        n_components, _, _ = matrix_chol.shape 
-        log_det_chol = (np.log(
-            matrix_chol.reshape(n_components, -1)[:, ::n_features + 1]))
-    elif covariance_type == "tied":
-        log_det_chol = (np.sum(np.log(np.diag(matrix_chol))))
+    if x[i][j] >= 0:
+        z[i][j] = np.exp(-x[i][j])
+        z[i][j] = 1 / (1 + z[i][j])
     else:
-        log_det_chol = np.log(matrix_chol)
+        z[i][j] = np.exp(x[i][j])
+        z[i][j] = z[i][j] / (1 + z[i][j])
+        
+    return z[i][j]
+
+def sigmoid_parallel(x):
     
-    return log_det_chol
+    n_samples, n_features = x.shape
+    z = np.empty((n_samples, n_features))
+    parallel = Parallel(n_jobs = -1, verbose = 1, pre_dispatch = '2*n_jobs', prefer="processes")
+    out = parallel(delayed(sigmoid)(x, z, i, j)for i, j in zip(range(n_samples),range(n_features)))
+        
+    return out
+
+output = sigmoid_parallel(X)
+"""
 
 #------------------------------------------------------------------------------
-# Stochastic Variational Inferenece for Join-Cluster mixture models 
+# Stochastic Variational Inferenece for Dirichlet-multinomial mixture models 
 #------------------------------------------------------------------------------
 
-class Integrated_SVVS():
+class DMM_VFS():
     
-    def __init__(self, n_components=1, covariance_type='full', tol=1e-3,
-                 reg_covar=1e-6, max_iter=100, n_init=1, init_params='kmeans',
-                 weight_concentration_prior_type='dirichlet_process',
-                 weight_concentration_prior_gl=None,
-                 
-                 ## Metabolomics - GMM 
-                 weight_concentration_prior_mt=None,
-                 weights_init_mt=None, means_init_mt=None, precisions_init_mt=None,
-                 mean_precision_prior_mt=None, mean_prior_mt=None,
-                 degrees_of_freedom_prior_mt=None, covariance_prior_mt=None,
-                 
-                 ## Microbiome - DMM
-                 weight_concentration_prior_mc=None,
-                 weights_init_mc=None,
-                 alpha=None, beta=None,
-                 
-                 ## Random state
+    def __init__(self, n_components=1, tol=1e-3, max_iter=100, n_init=1,
+                 init_params='kmeans', weight_concentration_prior_type='dirichlet_process',
+                 weight_concentration_prior=None, weights_init=None, 
+                 alpha=None, beta=None, 
                  random_state=42, warm_start=False, verbose=0, verbose_interval=10):
         
         self.n_components = n_components
-        self.tol = tol 
-        self.max_iter = max_iter 
+        self.tol = tol
+        self.max_iter = max_iter
         self.n_init = n_init
-        self.init_params = init_params 
-        self.random_state = random_state 
+        self.init_params = init_params
+        self.random_state = random_state
         self.warm_start = warm_start 
         self.verbose = verbose 
-        self.verbose_interval = verbose_interval 
+        self.verbose_interval = verbose_interval
         
         self.weight_concentration_prior_type = weight_concentration_prior_type
-        
-        # Global clustering
-        self.weight_concentration_prior_gl = weight_concentration_prior_gl
-        
-        # Metabolomics - GMM 
-        self.weight_concentration_prior_mt = weight_concentration_prior_mt
-        self.covariance_type = covariance_type 
-        self.weights_init_mt = weights_init_mt
-        self.means_init_mt = means_init_mt 
-        self.precisions_init_mt = precisions_init_mt
-        self.mean_precision_prior_mt = mean_precision_prior_mt
-        self.mean_prior_mt = mean_prior_mt
-        self.degrees_of_freedom_prior_mt = degrees_of_freedom_prior_mt
-        self.covariance_prior_mt = covariance_prior_mt
-        
-        # Microbiome - DMM
-        self.weight_concentration_prior_mc = weight_concentration_prior_mc
-        self.weights_init_mc = weights_init_mc
-        self.alpha = alpha
+        self.weight_concentration_prior = weight_concentration_prior 
+        self.weights_init = weights_init 
+        self.alpha = alpha 
         self.beta = beta 
         
-    def _initialize_parameters(self, X, Y, random_state):
+    def _initialize_parameters(self, X, random_state):
         
-        """
-        X: Metabolomics dataset
-        Y: Microbiome dataset
-        """
+        n_samples, n_features = X.shape
         
-        n_samples_mt, n_features_mt = X.shape
-        n_samples_mc, n_features_mc = Y.shape 
+        self.weight_concentration_prior = 1./self.n_components
+        self.select_prior = 1 
         
-        self.weight_concentration_prior_gl = 1./self.n_components
-        self.weight_concentration_prior_mt = 1./self.n_components
-        self.weight_concentration_prior_mc = 1./self.n_components
-        
-        self.select_prior_mt = 1
-        self.select_prior_mc = 1
+        self.gamma = np.ones((self.n_components, n_features))
+        self.delta = np.ones((self.n_components, n_features))
+        self.iota = np.ones(n_features)
+        self.kappa = np.ones(n_features)
         
         random_state = check_random_state(self.random_state)
         
-        # Global clustering
-        self.resp_gl = np.zeros((n_samples_mc, self.n_components))
+        self.resp = np.zeros((n_samples, self.n_components))
         
-        if self.init_params == "random":
-            self.resp_gl = random_state.rand(n_samples_mc, self.n_components)
-            self.resp_gl /= self.resp_gl.sum(axis=1)[:, np.newaxis]
-        
-        # Metabolomics - GMM 
-        self.mean_precision_prior_mt = 1.
-        self.mean_prior_mt = X.mean(axis=0)
-        self.degrees_of_freedom_prior_mt = n_features_mt
-        self.covariance_prior_mt = {
-            'full': np.atleast_2d(np.cov(X.T)),
-            'tied': np.atleast_2d(np.cov(X.T)),
-            'diag': np.var(X, axis=0, ddof=1),
-            'spherical': np.var(X, axis=0, ddof=1).mean()
-        }[self.covariance_type]
-        
-        self.resp_mt = np.zeros((self.n_components, self.n_components))
-        
-        if self.init_params == 'random':
-            self.resp_mt = random_state.rand(self.n_components, self.n_components)
-            self.resp_mt /= self.resp_mt.sum(axis=1)[:, np.newaxis]
+        if self.init_params == "kmeans":
+            label = cluster.KMeans(n_clusters=self.n_components, n_init=1,
+                                   random_state=random_state).fit(X).labels_
+            self.resp[np.arange(n_samples), label] = 1
+        elif self.init_params == "random":
+            self.resp = random_state.rand(n_samples, self.n_components)
+            self.resp /= self.resp.sum(axis=1)[:, np.newaxis]
             
-        select_mt = np.zeros((n_samples_mt, n_features_mt))
-        reject_mt = np.zeros((n_samples_mt, n_features_mt))
-        for d in range(n_features_mt):
-            chois = random_state.rand(n_samples_mt, 2)
-            select_mt[:, d] = chois[:,0]
-            reject_mt[:, d] = chois[:,1]
-        select_norm_mt = select_mt/(select_mt + reject_mt)
-        self.selected_mt = select_norm_mt
+        select = np.zeros((n_samples, n_features))
+        reject = np.zeros((n_samples, n_features))
+        for d in range(n_features):
+            chois = random_state.rand(n_samples, 2)
+            select[:,d] = chois[:,0]
+            reject[:,d] = chois[:,1]
+        select_norm = select/(select + reject)
+        self.selected = select_norm
         
-        gl_mt = np.dot(self.resp_gl, self.resp_mt)
-        nk = np.dot(gl_mt.T, self.selected_mt) + 10 * np.finfo(self.resp_gl.dtype).eps
-        xk = np.dot(gl_mt.T, self.selected_mt * X) / nk
-        sk = {"full": _estimate_gaussian_covariances_full,
-              "tied": _estimate_gaussian_covariances_tied,
-              "diag": _estimate_gaussian_covariances_diag,
-              }[self.covariance_type](self.resp_gl, self.resp_mt, X, self.selected_mt, nk, xk, self.reg_covar)
-        
-        self._estimate_weights_mt()
-        self._estimate_selection_mt()
-        self._estimate_means_mt(nk, xk)
-        self._estimate_wishart_mt(nk, xk, sk)
-        self._estimate_means_rj_mt(X)
-        self._estimate_wishart_rj_mt(X)
-        
-        # Microbiome - DMM 
-        self.gamma = np.ones((self.n_components, n_features_mc))
-        self.delta = np.ones((self.n_components, n_features_mc))
-        self.iota = np.ones(n_features_mc)
-        self.kappa = np.ones(n_features_mc)
-        
-        self.resp_mc = np.zeros((self.n_components , self.n_components))
-        
-        if self.init_params == "random":
-            self.resp_mc = random_state.rand(self.n_components, self.n_components)
-            self.resp_mc /= self.resp_mc.sum(axis=1)[:, np.newaxis]
-            
-        select_mc = np.zeros((n_samples_mc, n_features_mc))
-        reject_mc = np.zeros((n_samples_mc, n_features_mc))
-        for d in range(n_features_mc):
-            chois = random_state.rand(n_samples_mc, 2)
-            select_mc[:,d] = chois[:,0]
-            reject_mc[:,d] = chois[:,1]
-        select_norm_mc = select_mc/(select_mc + reject_mc)
-        self.selected_mc = select_norm_mc
-        
-        self.gamma_vi = self.gamma
+        nk = np.dot(self.resp.T, self.selected) + 10 * np.finfo(self.resp.dtype).eps
+        self.gamma_vi = self.gamma 
         self.delta_vi = self.delta 
         self.iota_vi = self.iota 
         self.kappa_vi = self.kappa 
         
-        self._estimate_weights_mc()
-        self._estimate_selections_mc()
+        self._estimate_weights()
+        self._estimate_selections()
         
-        return self.resp_gl, self.resp_mt, self.resp_mc
-    
-    """
-    Metabolomics - GMM 
-    Input data: X
-    """
-    def _estimate_weights_mt(self):
+        return self.resp, self.selected
         
-        nk = self.resp_mt.sum(axis=0) + 10 * np.finfo(self.resp_mt.dtype).eps 
+    def _estimate_weights(self):
         
-        self.weight_concentration_mt = (
+        nk = self.resp.sum(axis=0) + 10 * np.finfo(self.resp.dtype).eps
+        
+        self.weight_concentration_ = (
             1. + nk,
-            (self.weight_concentration_prior_mt + 
-             np.hstack((np.cumsum(nk[::-1])[-2::-1], 0))))        
-        
-    def _estimate_selection_mt(self):
-        
-        self.xi1_mt = self.select_prior_mt + self.selected_mt.sum(axis=0)
-        self.xi2_mt = self.select_prior_mt + (1 - self.selected_mt).sum(axis=0)
-        
-    def _estimate_means_mt(self, nk, xk):
-        
-        self.mean_precision_mt = self.mean_precision_prior_mt + nk
-        self.means_mt = ((self.mean_precision_prior_mt * self.mean_prior_mt + nk * xk)/self.mean_precision_mt)
+            (self.weight_concentration_prior + 
+             np.hstack((np.cumsum(nk[::-1])[-2::-1], 0))))
     
-    def _estimate_means_rj_mt(self, X):
+    def _estimate_selections(self):
         
-        self.mean_precision_rj_mt = self.mean_precision_prior_mt + (1 - self.selected_mt).sum(axis=0)
-        self.means_rj_mt = ((self.mean_precision_prior_mt * self.mean_prior_mt + 
-                             ((1 - self.selected_mt) * X).sum(axis=0)) / self.mean_precision_rj_mt)
+        self.xi1 = self.select_prior + self.selected.sum(axis=0)
+        self.xi2 = self.select_prior + (1 - self.selected).sum(axis=0)
         
-    def _estimate_wishart_mt(self, nk, xk, sk):
+    def _estimate_alpha(self, X):
         
-        _, n_features = xk.shape
+        n_samples, n_features = X.shape
+        means_ = self.gamma_vi / self.gamma_vi.sum(axis=1)[:,np.newaxis]
+
+        part_1 = np.dot(self.resp.T, self.selected) * means_ * digamma(means_.sum(axis=1))[:, np.newaxis]
         
-        if self.covariance_type == 'full':
-            
-            self.degrees_of_freedom_mt = self.degrees_of_freedom_prior_mt + nk 
-            
-            self.covariances_mt = np.empty((self.n_components, n_features, n_features))
-            
-            for k in range(self.n_components):
-                diff = xk[k] - self.mean_prior_mt
-                self.covariances_mt[k] = (self.covariance_prior_mt + nk[k] * sk[k] + 
-                                          nk[k] * self.mean_precision_prior_mt/self.mean_precision_mt[k] * np.outer(diff, diff))
-                self.covariances_mt[k] = (self.covariances_mt[k] / self.degrees_of_freedom_mt[k]) + 1e-6
-                
-        elif self.covariance_type == 'tied':
-            
-            self.degrees_of_freedom_mt = (self.degrees_of_freedom_prior_mt + nk.sum(axis = 0) / self.n_components)
-            
-            diff = xk - self.mean_prior_mt
-            self.covariances_mt = (
-                self.covariance_prior_mt + sk * nk.sum(axis = 0) / self.n_components + 
-                self.mean_precision_prior_mt / self.n_components * np.dot(
-                    ((nk / self.mean_precision_mt) * diff).T, diff))
-            
-            self.covariances_mt /= self.degrees_of_freedom_mt
-            
-        elif self.covariance_type == 'diag':
-            
-            self.degrees_of_freedom_mt = self.degrees_of_freedom_prior_mt + nk
-            
-            diff = xk - self.mean_prior_mt
-            self.covariances_mt = (
-                self.covariance_prior_mt + nk * (
-                    sk + (self.mean_precision_prior_mt / self.mean_precision_mt) * np.square(diff)))
-            self.covariances_mt /= self.degrees_of_freedom_mt
+        dig_sum_1 = np.empty((n_samples, self.n_components))
+        for k in range(self.n_components):
+            y = X + means_[k]
+            dig_sum_1[:,k] = np.sum(y, axis=1)
+        part_2 = np.dot((self.resp * digamma(dig_sum_1)).T, self.selected) * means_
         
-        self.precisions_cholesky_mt = _compute_precision_cholesky(self.covariances_mt, self.covariance_type)
+        part_3 = np.empty((self.n_components, n_features))
+        for k in range(self.n_components):
+            y = X + means_[k]
+            y = self.selected * digamma(y) * self.resp[:,k][:, np.newaxis]
+            part_3[k] = np.sum(y, axis=0)
+        part_3 = part_3 * means_
         
-    def _estimate_wishart_rj_mt(self, X):
+        part_4 = np.dot(self.resp.T, self.selected) * means_ * digamma(means_)
+
+        self.gamma_vi = self.gamma + part_1 - part_2 + part_3 - part_4
         
-        n_samples, n_features = X.shape 
+    def _estimate_beta(self, X):
         
-        if self.covariance_type == 'full':
-            
-            self.degrees_of_freedom_rj_mt = self.degrees_of_freedom_prior_mt + self.selected_mt.sum(axis = 0)
-            
-            diff = X - self.means_rj_mt 
-            covariances_mt = np.dot((self.selected_mt * diff).T, diff) / self.selected_mt.sum(axis = 0)
-            covariances_mt.flat[::n_features + 1] += self.reg_covar
-            
-            diff_ = self.means_rj_mt - self.mean_prior_mt
-            self.covariances_rj_mt = (self.selected_mt.sum(axis=0) * covariances_mt + 
-                                      self.selected_mt.sum(axis=0) * self.mean_precision_prior_mt / 
-                                      self.mean_precision_rj_mt * np.outer(diff_, diff_))
-            self.covariances_rj_mt = (self.covariances_rj_mt / self.degrees_of_freedom_rj_mt) + 1e-6
-            cov_chol = linalg.cholesky(self.covariances_rj_mt, lower=True)
-            self.precisions_cholesky_rj_mt = linalg.solve_triangular(cov_chol, np.eye(n_features), lower=True).T
-            
-        elif self.covariance_type == 'diag':
-            
-            self.degrees_of_freedom_rj_mt = self.degrees_of_freedom_prior_mt + (1 - self.selected_mt).sum(axis = 0)
-            
-            nk = (1 - self.selected_mt).sum(axis = 0)
-            avg_X2 = ((1 - self.selected_mt) * X * X).sum(axis = 0) / nk
-            avg_means2 = ((1 - self.selected_mt) * self.means_rj_mt ** 2).sum(axis = 0) / nk
-            avg_X_means = (self.means_rj_mt * ((1 - self.selected_mt) * X).sum(axis = 0)) / nk
-            sk = avg_X2 - 2 * avg_X_means + avg_means2 + self.reg_covar
-            
-            diff = self.means_rj_mt - self.mean_prior_mt 
-            self.covariances_rj_mt = (nk * (sk + (self.mean_precision_prior_mt / self.mean_precision_rj_mt) * np.square(diff)))
-            self.covariances_rj_mt /= self.degrees_of_freedom_rj_mt 
-            self.precisions_cholesky_rj_mt = 1. / np.sqrt(self.covariances_rj_mt)
-            
-    def _estimate_log_weights_mt(self):
+        means_rj = self.iota_vi / self.iota_vi.sum()
+
+        part_1 = ((1-self.selected) * means_rj * digamma(means_rj.sum())).sum(axis=0)
+
+        y = X + means_rj
+        part_2 = ((1-self.selected) * means_rj * digamma(y.sum(axis=1))[:,np.newaxis]).sum(axis=0)
+
+        part_3 = ((1-self.selected) * means_rj * digamma(y)).sum(axis=0)
+
+        part_4 = ((1-self.selected) * means_rj * digamma(means_rj)).sum(axis=0)
+
+        self.iota_vi = self.iota + part_1 - part_2 + part_3 - part_4
         
-        digamma_sum = digamma(self.weight_concentration_mt[0] + 
-                              self.weight_concentration_mt[1])
-        digamma_a = digamma(self.weight_concentration_mt[0])
-        digamma_b = digamma(self.weight_concentration_mt[1])
+    def _estimate_log_weights(self):
+        
+        digamma_sum = digamma(self.weight_concentration_[0] + 
+                              self.weight_concentration_[1])
+        digamma_a = digamma(self.weight_concentration_[0])
+        digamma_b = digamma(self.weight_concentration_[1])
         
         return (digamma_a - digamma_sum + 
                 np.hstack((0, np.cumsum(digamma_b - digamma_sum)[:-1])))
     
-    def _estimate_log_prob_mt(self, X):
+    def _estimate_log_prob(self, X):
         
-        n_samples, n_features = X.shape 
-        n_components, _ = self.means_mt.shape 
+        n_samples, n_features = X.shape
+        means_ = self.gamma_vi / self.gamma_vi.sum(axis=1)[:,np.newaxis]
+        log_means_ = np.log(means_)
         
-        log_det = _compute_log_det_cholesky(self.precisions_cholesky_mt, self.covariance_type, n_features)
+        sum_1_1 = np.empty((n_samples, self.n_components))
+        for k in range(self.n_components):
+            y = X + means_[k]
+            sum_1_1[:, k] = np.sum(y, axis=1) 
+        part_1 = gammaln(means_.sum(axis=1)) - gammaln(sum_1_1)
+        part_1 = self.selected.sum(axis=1)[:, np.newaxis] * part_1
         
-        if self.covariance_type == 'full':
-            log_prob = np.empty((n_samples, n_components))
-            for k, (mu, prec_chol) in enumerate(zip(self.means_mt, self.precisions_cholesky_mt)):
-                y = np.dot(X, prec_chol) - np.dot(mu, prec_chol)
-                log_prob[:, k] = np.sum(np.dot(self.resp_gl.T, (np.square(y) * self.selected_mt)) * self.degrees_of_freedom_mt[k], axis=1)
-            
-        elif self.covariance_type == 'diag':
-            precisions = self.degrees_of_freedom_mt * (self.precisions_cholesky_mt ** 2)
-            global_selected_mt = np.dot(self.resp_gl.T, self.selected_mt)
-            log_prob = (np.dot(global_selected_mt, (self.means_mt ** 2 * precisions).T) - 
-                        2. * np.dot(np.dot(self.resp_gl.T, self.selected_mt * X), (self.means_mt * precisions).T) + 
-                        np.dot(np.dot(self.resp_gl.T, self.selected_mt * X ** 2), precisions.T))
-            
-        log_gauss = (-.5 * (n_features * np.log(2 * np.pi) + log_prob)) + .5 * np.dot(np.dot(self.resp_gl.T, self.selected_mt), log_det.T)
         
-        log_lambda = n_features * np.log(2.) + digamma(.5 * (self.degrees_of_freedom_mt - np.arange(0, n_features)))
-        log_lambda = .5 * (log_lambda - n_features / self.mean_precision_mt)
+        sum_2_1 = means_ * (digamma(self.gamma_vi) - digamma(self.gamma_vi.sum(axis=1))[:, np.newaxis] - log_means_) * digamma(means_.sum(axis=1))[:, np.newaxis]
+        sum_2_1 = np.dot(self.selected, sum_2_1.T)
+        sum_2_2 = np.empty((n_samples, self.n_components))
+        for k in range(self.n_components):
+            y = X + means_[k]
+            sum_2_2[:, k] = np.sum(y, axis=1)
+        sum_2_2 = digamma(sum_2_2) * np.dot(self.selected, (means_ * (digamma(self.gamma_vi) - digamma(self.gamma_vi.sum(axis=1))[:, np.newaxis] - log_means_)).T)
+        part_2 = sum_2_1 - sum_2_2
         
-        return log_gauss + np.dot(np.dot(self.resp_gl.T, self.selected_mt), log_lambda.T)
+        
+        sum_3_1 = np.empty((n_samples, self.n_components))
+        for k in range(self.n_components):
+            y = X + means_[k]
+            y = self.selected * gammaln(y)
+            sum_3_1[:, k] = np.sum(y, axis=1)
+        sum_3_2 = np.dot(self.selected, gammaln(means_).T)
+        part_3 = sum_3_1 - sum_3_2
+        
+        
+        sum_4_1 = np.empty((n_samples, self.n_components))
+        for k in range(self.n_components):
+            y = X + means_[k]
+            y = self.selected * digamma(y) * means_[k] * (digamma(self.gamma_vi)[k] - digamma(self.gamma_vi.sum(axis=1))[k] - log_means_[k])
+            sum_4_1[:, k] = np.sum(y, axis=1)
+        sum_4_2 = np.dot(self.selected, (means_ * digamma(means_) * (digamma(self.gamma_vi) - digamma(self.gamma_vi.sum(axis=1))[:, np.newaxis] - log_means_)).T)
+        part_4 = sum_4_1 - sum_4_2
+        
+        """
+        X_fact = np.empty((n_samples, n_features))
+        for i in range(n_samples):
+            for j in range(n_features):
+                X_fact[i][j] = self.selected[i][j] * np.log(1/(math.factorial(X[i][j])) + 1e-6)
+        """
+        #return part_1 + part_2 + part_3 + part_4 + X_fact.sum(axis=1)[:, np.newaxis]
+        return part_1 + part_2 + part_3 + part_4
     
-    def _estimate_weighted_log_prob_mt(self, X):
+    def _estimate_weighted_log_prob(self, X):
         
-        return self._estimate_log_prob_mt(X) + self._estimate_log_weights_mt()
+        return self._estimate_log_prob(X) + self._estimate_log_weights()
     
-    def _estimate_log_prob_resp_mt(self, X):
+    def _estimate_log_prob_resp(self, X):
         
-        weighted_log_prob = self._estimate_weighted_log_prob_mt(X)
+        weighted_log_prob = self._estimate_weighted_log_prob(X)
         log_prob_norm = logsumexp(weighted_log_prob, axis = 1)
         with np.errstate(under = 'ignore'):
             log_resp = weighted_log_prob - log_prob_norm[:, np.newaxis]
         
-        return log_prob_norm, log_resp 
+        return log_prob_norm, log_resp
     
-    def _estimate_log_prob_selected_mt(self, X):
+    def _estimate_log_prob_selected(self, X):
         
-        n_samples, n_features = X.shape 
-        n_components, _ = self.means_mt.shape 
+        n_samples, n_features = X.shape
         
-        log_det = _compute_log_det_cholesky(self.precisions_cholesky_mt, self.covariance_type, n_features)
+        means_ = self.gamma_vi / self.gamma_vi.sum(axis=1)[:,np.newaxis]
+        log_means_ = np.log(means_)
+
+        sum_1_1 = np.empty((n_samples, self.n_components))
+        for k in range(self.n_components):
+            y = X + means_[k]
+            sum_1_1[:, k] = np.sum(y, axis=1) 
+        part_1 = (self.resp * gammaln(means_.sum(axis=1)) - self.resp * gammaln(sum_1_1)).sum(axis=1)
+        #part_1 = part_1 / part_1.sum()
         
-        if self.covariance_type == 'full':
-            log_prob_selected = np.empty((n_samples, n_features))
-            for k, (mu, prec_chol) in enumerate(zip(self.means_mt, self.precisions_cholesky_mt)):
-                y = np.dot(X, prec_chol) - np.dot(mu, prec_chol)
-                log_pro_select = np.square(y) * self.degrees_of_freedom_mt[k]
-                log_pro_select = (log_pro_select.T * (np.dot(self.resp_gl, self.resp_mt).T)[k]).T
-                log_prob_selected += log_pro_select
-                
-        elif self.covariance_type == 'diag':
-            
-            precisions = self.degrees_of_freedom_mt * self.precisions_cholesky_mt ** 2
-            log_prob_selected = (np.dot(np.dot(self.resp_gl, self.resp_mt), ((self.means_mt ** 2) * precisions)) - 
-                                 (2. * X * np.dot(np.dot(self.resp_gl, self.resp_mt), (self.means_mt * precisions))) + 
-                                 ((X ** 2) * np.dot(np.dot(self.resp_gl, self.resp_mt), precisions)))
         
-        log_gauss_selected = ((.5 * (log_prob_selected)) + .5 * np.dot(np.dot(self.resp_gl, self.resp_mt), log_det))
+        sum_2_1 = means_ * (digamma(self.gamma_vi) - digamma(self.gamma_vi.sum(axis=1))[:, np.newaxis] - log_means_) * digamma(means_.sum(axis=1))[:, np.newaxis]
+        sum_2_1 = np.dot(self.resp, sum_2_1)
+
+        sum_2_2 = np.empty((n_samples, self.n_components))
+        for k in range(self.n_components):
+            y = X + means_[k]
+            sum_2_2[:, k] = np.sum(y, axis=1)
+        sum_2_2 = np.dot((self.resp * digamma(sum_2_2)), (means_ * (digamma(self.gamma_vi) - digamma(self.gamma_vi.sum(axis=1))[:, np.newaxis] - log_means_)))
+        part_2 = sum_2_1 - sum_2_2
         
-        log_lambda = digamma(.5 * (self.degrees_of_freedom_mt - np.arange(0, n_features))) 
-        log_lambda = .5 * (log_lambda - n_features / self.mean_precision_mt)
         
-        estimate_log_gauss_selected = log_gauss_selected + np.dot(np.dot(self.resp_gl, self.resp_mt), log_lambda)
-        estimate_log_gauss_selected = estimate_log_gauss_selected + (digamma(self.xi1_mt) - digamma(self.xi1_mt + self.xi2_mt))
+        sum_3_1 = np.empty((self.n_components, n_samples, n_features))
+        for k in range(self.n_components):
+            y = X + means_[k]
+            y = self.resp[:,k][:, np.newaxis] * gammaln(y)
+            sum_3_1[k] = y
+        sum_3_1 = np.sum(sum_3_1, axis=0)    
+        sum_3_2 = np.dot(self.resp, gammaln(means_))
+        part_3 = sum_3_1 - sum_3_2
         
-        return estimate_log_gauss_selected
+        
+        sum_4_1 = np.empty((self.n_components, n_samples, n_features))
+        for k in range(self.n_components):
+            y = X + means_[k]
+            y = self.resp[:,k][:, np.newaxis] * digamma(y) * means_[k] * (digamma(self.gamma_vi)[k] - digamma(self.gamma_vi.sum(axis=1))[k] - log_means_[k])
+            sum_4_1[k] = y
+        sum_4_1 = np.sum(sum_4_1, axis=0)
+        sum_4_2 = np.dot(self.resp, (means_ * digamma(means_) * (digamma(self.gamma_vi) - digamma(self.gamma_vi.sum(axis=1))[:, np.newaxis] - log_means_)))
+        part_4 = sum_4_1 - sum_4_2
+        
+        """
+        X_fact = np.empty((n_samples, n_features))
+        resp_ = self.resp.sum(axis=1)
+        for i in range(n_samples):
+            for j in range(n_features):
+                X_fact[i][j] = resp_[i] * np.log(1/(math.factorial(X[i][j])) + 1e-6)
+        """
+        
+        #estimate_log_select = part_1[:, np.newaxis] + part_2 + part_3 + part_4 + X_fact
+        estimate_log_select = part_2 + part_3 + part_4
+        estimate_log_select = estimate_log_select + (digamma(self.xi1) - digamma(self.xi1 + self.xi2))
+        return estimate_log_select
     
-    def _estimate_log_prob_rejected_mt(self, X):
+    def _estimate_log_prob_rejected(self, X):
         
-        n_samples, n_features = X.shape 
+        n_samples, n_features = X.shape
         
-        if self.covariance_type == 'full':
-            log_det = np.log(np.diag(self.precisions_cholesky_rj_mt))
-            
-            y = np.dot(X, self.precisions_cholesky_rj_mt) - np.dot(self.means_rj_mt, self.precisions_cholesky_rj_mt)
-            log_prob_rejected = np.square(y) * self.degrees_of_freedom_rj_mt
-            
-        elif self.covariance_type == 'diag': 
-            log_det = np.log(self.precisions_cholesky_rj_mt)
-            
-            precisions_rj_ = self.degrees_of_freedom_rj_mt * self.precisions_cholesky_rj_mt ** 2 
-            log_prob_rejected = (((self.means_rj_mt ** 2) * precisions_rj_) - 
-                                 (2. * X * (self.means_rj_mt * precisions_rj_)) + 
-                                 ((X ** 2) * precisions_rj_))
+        means_ = self.iota_vi / self.iota_vi.sum()
+        log_means_ = np.log(means_)
+
+ 
+        part_1_ = gammaln(means_.sum()) - gammaln((X + means_).sum(axis=1))
+        part_1_ = part_1_ / part_1_.sum()
         
-        log_gauss_rejected = ((-.5 * (log_prob_rejected)) + .5 * log_det)
         
-        log_lambda_rejected = digamma(.5 * (self.degrees_of_freedom_rj_mt - np.arange(0, n_features)))
-        log_lambda_rejected = .5 * (log_lambda_rejected - n_features / self.mean_precision_rj_mt)
+        sum_2_1_ = means_ * (digamma(self.iota_vi) - digamma(self.iota_vi.sum()) - log_means_) * digamma(means_.sum())
+        sum_2_2_ = means_ * (digamma(self.iota_vi) - digamma(self.iota_vi.sum()) - log_means_) * digamma((X + means_).sum(axis=1))[:, np.newaxis]
+        part_2_ = sum_2_1_ - sum_2_2_
         
-        estimate_log_gauss_rejected = log_gauss_rejected + log_lambda_rejected
-        estimate_log_gauss_rejected = estimate_log_gauss_rejected + (digamma(self.xi2_mt) - digamma(self.xi1_mt + self.xi2_mt))
         
-        return estimate_log_gauss_rejected 
+        part_3_ = gammaln((X + means_)) - gammaln(means_)
+
+
+        sum_4_1_ = means_ * (digamma(self.iota_vi) - digamma(self.iota_vi.sum()) - log_means_) * digamma((X + means_))
+        sum_4_2_ = means_ * (digamma(self.iota_vi) - digamma(self.iota_vi.sum()) - log_means_) * digamma((means_))
+        part_4_ = sum_4_1_ - sum_4_2_
+        
+        """
+        X_fact = np.empty((n_samples, n_features))
+        for i in range(n_samples):
+            for j in range(n_features):
+                X_fact[i][j] = np.log(1/math.factorial(X[i][j]) + 1e-6)
+        """
+        
+        #estimate_log_reject = part_1_[:, np.newaxis] + part_2_ + part_3_ + part_4_ + X_fact
+        estimate_log_reject = part_2_ + part_3_ + part_4_
+        estimate_log_reject = estimate_log_reject + (digamma(self.xi2) - digamma(self.xi1 + self.xi2))
+        return estimate_log_reject
     
-    def _estimate_prob_selection_mt(self, X):
+    def _estimate_prob_selection(self, X):
         
-        selection = self._estimate_log_prob_selected_mt(X)
-        rejection = self._estimate_log_prob_rejected_mt(X)
+        selection = self._estimate_log_prob_selected(X)
+        rejection = self._estimate_log_prob_rejected(X)
         
         select_exp = np.exp(selection)
         select_exp = np.nan_to_num(select_exp, posinf=1)
         
         reject_exp = np.exp(rejection)
+        #reject_exp = np.nan_to_num(reject_exp, posinf=0)
         reject_exp = np.nan_to_num(reject_exp, posinf=1)
         
         #select_exp = sigmoid(selection)
         #reject_exp = sigmoid(rejection)
         
-        self.selected_mt = (select_exp + 1e-6) / (select_exp + reject_exp + 1e-6)
+        self.selected = (select_exp + 1e-6) / (select_exp + reject_exp + 1e-6)
         
-        return self.selected_mt
+        return self.selected
+        
+    def _e_step(self, X):
+        
+        log_prob_norm, log_resp = self._estimate_log_prob_resp(X)
+        prob_selected = self._estimate_prob_selection(X)
+        #return np.mean(log_prob_norm), log_resp
+        return np.mean(log_prob_norm), log_resp, prob_selected
+    
+    def _m_step(self, X, log_resp):
+        
+        n_samples, n_features = X.shape
+        
+        self.resp = np.exp(log_resp)
+        
+        self._estimate_weights()
+        self._estimate_selections()
+        self._estimate_alpha(X)
+        self._estimate_beta(X)
+        
+    def fit_predict(self, X):
+        
+        n_init = self.n_init
+        max_lower_bound = -np.infty 
+        random_state = check_random_state(self.random_state)
+        n_samples, n_features = X.shape
+        
+        clus_update = {}
+        sel_update = {}
+        
+        for init in range(n_init):
             
-    
-    """
-    Microbiome - DMM 
-    Input data: Y
-    """
-    
-    def _estimate_weights_mc(self):
+            self._initialize_parameters(X, random_state)
+            lower_bound = -np.infty 
+            
+            for n_iter in range(1, self.max_iter + 1):
+                print(n_iter)
+                prev_lower_bound = lower_bound 
+                log_prob_norm, log_resp, prob_selected = self._e_step(X)
+                self._m_step(X, log_resp)
+                clus_update[n_iter] = self.resp
+                sel_update[n_iter] = self.selected
+                
+        _, log_resp, prob_selected = self._e_step(X)
         
-        nk = self.resp_mc.sum(axis = 0) + 10 * np.finfo(self.resp_mc.dtype).eps
-        
-        self.weight_concentration_mc = (
-            1. + nk, 
-            (self.weight_concentration_prior_mc + 
-             np.hstack((np.cumsum(nk[::1])[-2::-1], 0))))
-    
-    def _estimate_selections_mc(self):
-        
-        self.xi1_mc = self.select_prior_mc + self.selected_mc.sum(axis = 0)
-        self.xi2_mc = self.select_prior_mc + (1 - self.selected_mc).sum(axis = 0)
-        
-    def _estimate_alpha_mc(self, Y): 
-        
-        n_samples, n_features = Y.shape 
-        means_mc = self.gamma_vi / self.gamma_vi.sum(axis = 1)[:, np.newaxis]
-        join_clus_mc = np.dot(self.resp_gl, self.resp_mc)
-        
-        part_1 = np.dot(join_clus_mc.T, self.selected_mc) * means_mc * digamma(means_mc.sum(axis=1))[:, np.newaxis]
-        
-        dig_sum_1 = np.empty((n_samples, self.n_components))
-        for k in range(self.n_components):
-            y = Y + means_mc[k]
-            dig_sum_1[:,k] = np.sum(y, axis = 1)
-        part_2 = np.dot((join_clus_mc * digamma(dig_sum_1)).T, self.selected_mc) * means_mc
-        
-        part_3 = np.empty((self.n_components, n_features))
-        for k in range(self.n_components):
-            y = Y * means_mc[k]
-            y = self.selected_mc * digamma(y) * join_clus_mc[:,k][:, np.newaxis]
-            part_3[k] = np.sum(y, axis = 0)
-        part_3 = part_3 * means_mc
-        
-        part_4 = np.dot(join_clus_mc.T, self.selected_mc) * means_mc * digamma(means_mc)
-        
-        self.gamma_vi = self.gamma + part_1 - part_2 + part_3 - part_4 
-        
-    def _estimate_beta_mc(self, Y):
-        
-        means_rj_mc = self.iota_vi / self.iota_vi.sum()
-        
-        part_1 = ((1 - self.selected_mc) * means_rj_mc * digamma(means_rj_mc.sum())).sum(axis = 0)
-        
-        y = Y + means_rj_mc
-        part_2 = ((1 - self.selected_mc) * means_rj_mc * digamma(y.sum(axis=1))[:,np.newaxis]).sum(axis=0)
-        
-        part_3 = ((1 - self.selected_mc) * means_rj_mc * digamma(y)).sum(axis=0)
-        
-        part_4 = ((1 - self.selected_mc) * means_rj_mc * digamma(means_rj_mc)).sum(axis=0)
-        
-        self.iota_vi = self.iota + part_1 - part_2 + part_3 - part_4
-        
-    def _estimate_log_weights_mc(self):
-        
-        digamma_sum = digamma(self.weight_concentration_mc[0] + 
-                              self.weight_concentration_mc[1])
-        digamma_a = digamma(self.weight_concentration_mc[0])
-        digamma_b = digamma(self.weight_concentration_mc[1])
-        
-        return (digamma_a - digamma_sum + 
-                np.hstack((0, np.cumsum(digamma_b - digamma_sum)[:-1])))
-    
-    def _estimate_log_prob_mc(self, Y):
-        
-        n_samples, n_features = Y.shape 
-        means_mc = self.gamma_vi / self.gamma_vi.sum(axis = 1)[:, np.newaxis]
-        log_means_mc = np.log(means_mc)
-        
-        sum_1_1 = np.empty((n_samples, self.n_components))
-        for k in range(self.n_components):
-            y = Y + means_mc[k]
-            sum_1_1[:, k] = np.sum(y, axis = 1)
-        part_1 = gammaln(means_mc.sum(axis = 1)) - gammaln(sum_1_1)
-        part_1 = self.selected_mc.sum(axis = 1)[:, np.newaxis] * part_1
-        part_1 = np.dot(self.resp_gl.T, part_1)
-        
-        
-        sum_2_1 = means_mc * (digamma(self.gamma_vi) - digamma(self.gamma_vi.sum(axis = 1))[:, np.newaxis] - log_means_mc) * digamma(means_mc.sum(axis = 1))[:, np.newaxis]
-        sum_2_1 = np.dot(np.dot(self.resp_gl.T, self.selected_mc), sum_2_1.T)
-        sum_2_2 = np.empty((n_samples, self.n_components))
-        for k in range(self.n_components):
-            y = Y + means_mc[k]
-            sum_2_2[:, k] = np.sum(y, axis = 1)
-        sum_2_2 = digamma(sum_2_2) * np.dot(np.dot(self.resp_gl.T, self.selected_mc), (means_mc * (digamma(self.gamma_vi) - digamma(self.gamma_vi.sum(axis = 1))[:, np.newaxis] - log_means_mc)).T)
-        part_2 = sum_2_1 - sum_2_2 
-        
-        
-        sum_3_1 = np.empty((n_samples, self.n_components))
-        for k in range(self.n_components):
-            y = Y + means_mc[k]
-            y = 
-        
-        
-        
-    
-    
+        return log_resp, clus_update, prob_selected, sel_update
+
+#------------------------------------------------------------------------------
+# Test algorithms
+#------------------------------------------------------------------------------ 
+from sklearn.metrics.cluster import adjusted_rand_score
+import time
+
+tottori_count_raw = pd.read_csv("2000_ASV_nonrarefied.csv", index_col=0)
+#tottori_count_raw = pd.read_csv("3000_ASV.csv", index_col=0)
+tottori_count = tottori_count_raw.drop(columns = ['Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus',
+       'Species'])
+tottori_count = tottori_count.set_index("Row.names")
+tottori_count = tottori_count.T
+tottori_meta = list(tottori_count.index)
+tottori_meta = [i[0] for i in tottori_meta]
+tottori_meta = pd.DataFrame(tottori_meta, columns = ["Label"]).reset_index(drop=True)
+tottori_meta["Index"] = tottori_count.index
+tottori_meta = tottori_meta.set_index("Index")
+
+cdi_count = pd.read_csv("CDI_count_data.csv", index_col=0)
+cdi_meta = pd.read_csv("cdi_meta.csv").set_index("sample_id")
+
+ob_count = pd.read_csv("OB_OTU_data.csv", index_col=0)
+ob_meta = pd.read_csv("OB_meta_data.csv").set_index("sample_id")
+
+ibd_count = pd.read_csv("IBD_OTU_data.csv", index_col=0)
+ibd_meta = pd.read_csv("IBD_meta_data.csv").set_index("sample")
+
+X = check_array(tottori_count, dtype=[np.float64, np.float32])
+X = check_array(cdi_count, dtype=[np.float64, np.float32])
+X = check_array(ob_count, dtype=[np.float64, np.float32])
+X = check_array(ibd_count, dtype=[np.float64, np.float32])
+
+random_state = 42
+dmm = DMM_VFS(n_components = 10, max_iter = 100, init_params = "random")
+
+resp, select = dmm._initialize_parameters(X, random_state)
+
+start = time.time()
+log_resp_, clus_update, prob_selected, sel_update = dmm.fit_predict(X)
+time_computation = time.time() - start 
+
+#resp_ = np.exp(clus_update[1000])
+resp_ = clus_update[100]
+log_resp_max_ = resp_.argmax(axis=1)
+
+selected_features = prob_selected.sum(axis=0)/prob_selected.shape[0]
+
+df = {'Microbiome_species': tottori_count.columns, 'Selected_probility': selected_features}
+clus_selected = pd.DataFrame(data=df).sort_values(by = 'Selected_probility',ascending=False).reset_index(drop=True)
+clus_selected.to_csv("Selected_OTUs.csv")
+
+df_cluster = {'Diseases': tottori_meta['Label'], 'Predicted_cluster': log_resp_max_}
+clus_labeled = pd.DataFrame(data=df_cluster)
+clus_labeled["True_cluster"] = clus_labeled["Diseases"].apply(lambda x: 5 
+                                          if x == "C" else 1 
+                                          )
+clus_labeled = clus_labeled.dropna()
+clus_labeled.to_csv("IBD_predicted_clusters.csv")
+CDI_predict = pd.read_csv("IBD_predicted_DMM.csv", index_col=0)
+CDI_predict["predict"] = CDI_predict["V1"].apply(lambda x: 1 if x == 1 else 0)
+
+ARI_score = adjusted_rand_score(clus_labeled['Predicted_cluster'], clus_labeled['True_cluster'])
+
+#------------------------------------------------------------------------------
+# Test name for selected species
+#------------------------------------------------------------------------------ 
+
+selected_species_100 = clus_selected[clus_selected["Selected_probility"] > 0.62]
+
+microbiome_species = list(selected_species_100["Microbiome_species"])
+microbiome_species_org = microbiome_species
+microbiome_species = [i.split(';')[-1][3:] for i in microbiome_species]
+microbiome_species = pd.DataFrame(microbiome_species, columns = ["Species"]).reset_index(drop=True)
+
+microbiome_genus = [i.split(';')[-3][3:] for i in microbiome_species_org]
+microbiome_genus = pd.DataFrame(microbiome_genus, columns = ["Genus"]).reset_index(drop=True)
+
+microbiome_family = [i.split(';')[-4][3:] for i in microbiome_species_org]
+microbiome_family = pd.DataFrame(microbiome_family, columns = ["Family"]).reset_index(drop=True)
+
+microbiome_species_org = pd.DataFrame(microbiome_species_org, columns = ["Full_name"]).reset_index(drop=True)
+
+microbiome_fgs = pd.concat([microbiome_family, microbiome_genus, microbiome_species, 
+                                   microbiome_species_org], axis=1)
+microbiome_fgs.to_csv("F_G_S_SVVS.csv")
+
+#------------------------------------------------------------------------------
+# Test CDI-Health for selected species
+#------------------------------------------------------------------------------ 
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+cdi_meta = pd.read_csv("cdi_meta.csv").set_index("sample_id")
+cdi_microbiome = pd.read_csv("cdi_OTUs.csv").set_index("index")
+
+CDI_selected_species_100 = cdi_microbiome[selected_species_100["Microbiome_species"]]
+
+cdi_group = cdi_meta["DiseaseState"]
+cdi_group = pd.get_dummies(cdi_group)
+drug_group = cdi_meta[["antibiotics >3mo", "protonpump"]]
+drug_group = drug_group.rename(columns= {'antibiotics >3mo': 'antibiotics'})
+drug_group = pd.get_dummies(drug_group)
+cdi_group = cdi_group.rename(columns={'CDI': 'CDI Case', 'ignore-nonCDI': 'Diarrheal Control',
+                                      'H': 'Non-Diarrheal Control'})
+corr_species_cdi = pd.concat([cdi_group, drug_group, CDI_selected_species_100], axis=1)
 
 
+plt.subplots(figsize=(10,40))
+#corr = corr_function_cdi.corr()
+corr = corr_species_cdi.corr(method = "spearman")
+corr = corr.drop(index=['CDI Case', 'Non-Diarrheal Control', 'Diarrheal Control', 
+                        'antibiotics_no', 'antibiotics_yes', 'protonpump_no', 'protonpump_yes'])
+corr = corr[['CDI Case','Non-Diarrheal Control']]
+#corr = corr.drop(index=['CDI Case', 'Non-Diarrheal Control', 'Diarrheal Control'])
+#corr = corr[['CDI Case','Non-Diarrheal Control', 'Diarrheal Control']]
+cmap = sns.diverging_palette(220, 10, as_cmap=True)
+hm = sns.heatmap(round(corr,2), annot=True, cmap=cmap, fmt=".2f",annot_kws={"size": 20},
+                 linewidths=.05)
+hm.set_xticklabels(hm.get_xticklabels(), fontsize = 20, rotation=45, horizontalalignment='right')
+hm.set_yticklabels(hm.get_yticklabels(), rotation=0, fontsize = 20)
+
+otu_cdi = corr.loc[(corr['CDI Case'] > 0.1) & (corr["Non-Diarrheal Control"] < 0)]
+otu_cdi = otu_cdi.drop(columns=["Non-Diarrheal Control"])
+otu_health = corr.loc[(corr['CDI Case'] < 0) & (corr["Non-Diarrheal Control"] > 0.1)]
+otu_health = otu_health.drop(columns=["CDI Case"])
+otu_cdi.to_csv("otu_cdi_SVVS.csv")
+otu_health.to_csv("otu_health_SVVS.csv")
 
 
+#------------------------------------------------------------------------------
+# Test name for selected species at Tottori 
+#------------------------------------------------------------------------------ 
 
+selected_species_100 = clus_selected[clus_selected["Selected_probility"] > 0.9]
 
+species_full_name = tottori_count_raw[['Row.names','Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus',
+       'Species']]
+species_full_name = species_full_name.set_index("Row.names")
+species_full_name = species_full_name.loc[selected_species_100["Microbiome_species"]]
+species_full_name.to_csv("F_G_S_SVVS_tottori_100.csv")
 
+#------------------------------------------------------------------------------
+# Test Tottori for selected species
+#------------------------------------------------------------------------------ 
 
+tottori_abun = tottori_count.divide(tottori_count.sum(axis=1), axis=0)
+tott_selected_species_100 = tottori_abun[selected_species_100["Microbiome_species"]]
 
+tott_group = tottori_meta["Label"]
+tott_group = pd.get_dummies(tott_group)
 
+corr_species_tott = pd.concat([tott_group, tott_selected_species_100], axis=1)
+corr = corr_species_tott.corr(method = "spearman")
+corr = corr.drop(index=['C','D'])
+corr = corr[['C','D']]
 
+otu_c = corr.loc[(corr['C'] > 0) & (corr['D'] < 0)]
+otu_c = otu_c.drop(columns = ['D'])
+otu_d = corr.loc[(corr['C'] < 0) & (corr['D'] > 0)]
+otu_d = otu_d.drop(columns = ['C'])
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+otu_c.to_csv("otu_tottori_C_100.csv")
+otu_d.to_csv("otu_tottori_D_100.csv")
 
 
 
