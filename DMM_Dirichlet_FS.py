@@ -359,15 +359,8 @@ class DMM_VFS():
         selection = self._estimate_log_prob_selected(X)
         rejection = self._estimate_log_prob_rejected(X)
         
-        select_exp = np.exp(selection)
-        select_exp = np.nan_to_num(select_exp, posinf=1)
-        
-        reject_exp = np.exp(rejection)
-        #reject_exp = np.nan_to_num(reject_exp, posinf=0)
-        reject_exp = np.nan_to_num(reject_exp, posinf=1)
-        
-        #select_exp = sigmoid(selection)
-        #reject_exp = sigmoid(rejection)
+        select_exp = sigmoid(selection)
+        reject_exp = sigmoid(rejection)
         
         self.selected = (select_exp + 1e-6) / (select_exp + reject_exp + 1e-6)
         
