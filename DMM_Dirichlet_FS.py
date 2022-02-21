@@ -406,6 +406,11 @@ class DMM_VFS():
                 self._m_step(X, log_resp)
                 clus_update[n_iter] = self.resp
                 sel_update[n_iter] = self.selected
+                low_bound = self._compute_lower_bound(log_resp, log_prob_norm)
+                
+                change = lower_bound - prev_lower_bound
+                if abs(change) < self.tol:
+                    break
                 
         _, log_resp, prob_selected = self._e_step(X)
         
