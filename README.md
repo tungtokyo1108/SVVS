@@ -32,7 +32,9 @@ dataset_A_meta = pd.read_csv("dataset_A_meta.csv", index_col=0)
 ```
 
 - Set up parameters for SVVS function
- - n_components:
+  - n_components: the maximum number of clusters. Depending on the data, SVVS can decide the number of effective cluster 
+  - max_iter: the maximum number of iterations to perform
+  - init_params: the method used to initialize the weights. There are two options: "kmeans": responsibilities are initialized using kmeans; "random": responsibilities are initialized randomly. Default = "random"
 
 ```
 X = check_array(dataset_A_count, dtype=[np.float64, np.float32])
