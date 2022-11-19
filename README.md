@@ -68,6 +68,6 @@ clus_selected = pd.DataFrame(data=df).sort_values(by = 'Selected_probility',asce
 
 ## The human gut microbiome
 
-We used datasets in Duvallet et al. (2017): http://dx.doi.org/10.1038/s41467-017-01973-8. Additional information about the datasets are in the MicrobiomeHD github repo https://github.com/cduvallet/microbiomeHD
+We used human gut microbiome datasets in Duvallet et al. (2017): http://dx.doi.org/10.1038/s41467-017-01973-8. Additional information about the datasets are in the MicrobiomeHD github repo https://github.com/cduvallet/microbiomeHD
 
 If you have any problem, please contact me via email: dangthanhtung91@vn-bml.com  
