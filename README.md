@@ -66,7 +66,8 @@ df = {'Microbiome_species': dataset_A_count.columns, 'Selected_probility': selec
 clus_selected = pd.DataFrame(data=df).sort_values(by = 'Selected_probility',ascending=False).reset_index(drop=True)
 ```
 
-## The published datasets for analyzing 
-https://zenodo.org/record/1146764#.Y3cbLuzP2dY
+## The human gut microbiome
+
+We used datasets in Duvallet et al. (2017): http://dx.doi.org/10.1038/s41467-017-01973-8. Additional information about the datasets are in the MicrobiomeHD github repo https://github.com/cduvallet/microbiomeHD
 
 If you have any problem, please contact me via email: dangthanhtung91@vn-bml.com  
