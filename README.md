@@ -32,7 +32,8 @@ dataset_A_meta = pd.read_csv("dataset_A_meta.csv", index_col=0)
 ```
 
 - Set up parameters for SVVS function
--- n_components: 
+- - n_components:
+
 ```
 X = check_array(dataset_A_count, dtype=[np.float64, np.float32])
 dmm = DMM_SVVS(n_components = 10, max_iter = 100, init_params = "random")
