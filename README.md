@@ -66,7 +66,7 @@ df = {'Microbiome_species': dataset_A_count.columns, 'Selected_probility': selec
 clus_selected = pd.DataFrame(data=df).sort_values(by = 'Selected_probility',ascending=False).reset_index(drop=True)
 ```
 
-## The human gut microbiome
+## Get the human gut microbiome datasets
 
 We used human gut microbiome datasets in Duvallet et al. (2017): http://dx.doi.org/10.1038/s41467-017-01973-8. Additional information about the datasets are in the MicrobiomeHD github repo https://github.com/cduvallet/microbiomeHD. MicrobiomeHD contains all 28 datasets of human gut microbiome studies in health and disease. In our study, we used only 3 datasets: cdi_schubert, ibd_gevers and ob_goodrich.
 
