@@ -8,6 +8,10 @@
 git clone https://github.com/tungtokyo1108/SVVS.git 
 ```
 
+- Install Anaconda and Rstudio in your PC. 
+    - https://www.anaconda.com/products/distribution
+    - https://posit.co/download/rstudio-desktop/
+
 ### How To Use 
 
 - Import packages 
