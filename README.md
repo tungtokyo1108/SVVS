@@ -65,6 +65,9 @@ selected_features = prob_selected.sum(axis=0)/prob_selected.shape[0]
 df = {'Microbiome_species': dataset_A_count.columns, 'Selected_probility': selected_features}
 clus_selected = pd.DataFrame(data=df).sort_values(by = 'Selected_probility',ascending=False).reset_index(drop=True)
 ```
+### Phylogenetic analysis
+
+- Run Phylogenetic_analysis.R in Rstudio 
 
 ## Get the human gut microbiome datasets
 
