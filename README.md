@@ -32,17 +32,39 @@ dataset_A_meta = pd.read_csv("dataset_A_meta.csv", index_col=0)
 ```
 
 - Set up parameters for SVVS function
-  - n_components: the maximum number of clusters. Depending on the data, SVVS can decide the number of effective cluster 
-  - max_iter: the maximum number of iterations to perform
-  - init_params: the method used to initialize the weights. There are two options: "kmeans": responsibilities are initialized using kmeans; "random": responsibilities are initialized randomly. Default = "random"
+  - n_components: the maximum number of clusters. Depending on the data, SVVS can decide the number of effective cluster. 
+  - max_iter: the maximum number of iterations to perform.
+  - init_params: the method used to initialize the weights. There are two options: "kmeans": responsibilities are initialized using kmeans; "random": responsibilities are initialized randomly. Default = "random".
+  - weight_concentration_prior: the dirichlet concentration of each component on weight distribution. Default = 0.1.
+  - select_prior: the prior on the selection distribution. Default = 1. 
 
 ```
 X = check_array(dataset_A_count, dtype=[np.float64, np.float32])
 dmm = DMM_SVVS(n_components = 10, max_iter = 100, init_params = "random")
 ```
 
+- Run SVVS 
+```
+log_resp_, clus_update, prob_selected, sel_update = dmm.fit_predict(X)
+```
 
+- Evaluate the number of cluster 
+```
+resp_ = clus_update[100]
+log_resp_max_ = resp_.argmax(axis=1)
+df_cluster = {'Diseases': dataset_A_meta['Label'], 'Predicted_cluster': log_resp_max_}
+clus_labeled = pd.DataFrame(data=df_cluster)
+clus_labeled["True_cluster"] = clus_labeled["Diseases"].apply(lambda x: 2 
+                                          if x == "D" else 4)
+ARI_score = adjusted_rand_score(clus_labeled["Predicted_cluster"], clus_labeled["True_cluster"])
+```
 
+- Evaluate the selected microbiome species 
+```
+selected_features = prob_selected.sum(axis=0)/prob_selected.shape[0]
+df = {'Microbiome_species': dataset_A_count.columns, 'Selected_probility': selected_features}
+clus_selected = pd.DataFrame(data=df).sort_values(by = 'Selected_probility',ascending=False).reset_index(drop=True)
+```
 
 ## The published datasets for analyzing 
 https://zenodo.org/record/1146764#.Y3cbLuzP2dY
