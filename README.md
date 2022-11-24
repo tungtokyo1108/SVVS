@@ -28,7 +28,7 @@ from sklearn.utils import check_array
 from sklearn.metrics.cluster import adjusted_rand_score
 from DMM_Dirichlet_SVVS import DMM_SVVS
 ```
-MicrobiomeHD github repo https://github.com/cduvallet/microbiomeHD
+
 - Import example dataset in  ```data/ ```
 ```
 dataset_A_count = pd.read_csv("datasetA_count.csv", index_col=0)
