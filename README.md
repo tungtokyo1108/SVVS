@@ -81,6 +81,7 @@ All of the code is in the ```src/``` folder:
 - DMM_Dirichlet_SVVS.py: file contains Python codes for SVVS algorithm
 - SVVS_application.py: file that is used to run SVVS algorithm for a sepecific dataset. Outputs of this file are Table S1 and S2. 
 - Figure_phylogenetic_analysis.R: file that is used to make phylogenetic analysis for each dataset. Outputs of this file are Figures 2, S4, S5 and S7. 
+- Figure_NMDS_analysis.R: file that is used to make NMDS figures. Outputs of this file are Figures 1 and 3.
 
 ## Get the human gut microbiome datasets
 
