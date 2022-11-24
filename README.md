@@ -78,7 +78,7 @@ We used human gut microbiome datasets in Duvallet et al. (2017): http://dx.doi.o
 
 ### Data
 
-- The main files for dataset A in our paper include: 
+- The main files for dataset A of our paper in the ```data/``` folder include: 
     - datasetA_count.csv: a OTU count table for dataset A 
     - datasetA_meta.csv: metadata that includes a true label of groups for dataset A 
     - datasetA_tree.nwk: phylogenetic tree for dataset A
