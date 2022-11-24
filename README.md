@@ -74,17 +74,24 @@ clus_selected = pd.DataFrame(data=df).sort_values(by = 'Selected_probility',asce
 
 ### Data
 
+- The main files include: 
+    - datasetA_count.csv: a OTU count table for dataset A 
+    - datasetA_meta.csv: metadata that includes a true label of groups for dataset A 
+    - datasetA_tree.nwk: phylogenetic tree for dataset A
+- Please follow instructions in the [MicrobiomeHD github repo](https://github.com/cduvallet/microbiomeHD) to get OTU tables, metadata and phylogenetic tree for datasets B, C and D 
+-      
+
 ### Source code
 
 All of the code is in the ```src/``` folder:
 
 - DMM_Dirichlet_SVVS.py: file contains Python codes for SVVS algorithm
-- SVVS_application.py: file that is used to run SVVS algorithm for a sepecific dataset. Outputs of this file are Table S1 and S2. 
+- SVVS_application.py: file that is used to run SVVS algorithm for a sepecific dataset.
 - Figure_phylogenetic_analysis.R: file that is used to make phylogenetic analysis for each dataset. Outputs of this file are Figures 2, S4, S5 and S7. 
 - Figure_NMDS_analysis.R: file that is used to make NMDS figures. Outputs of this file are Figures 1 and 3.
 
 ## Get the human gut microbiome datasets
 
-We used human gut microbiome datasets in Duvallet et al. (2017): http://dx.doi.org/10.1038/s41467-017-01973-8. Additional information about the datasets are in the MicrobiomeHD github repo https://github.com/cduvallet/microbiomeHD. MicrobiomeHD contains all 28 datasets of human gut microbiome studies in health and disease. In our study, we used only 3 datasets: cdi_schubert, ibd_gevers and ob_goodrich.
+We used human gut microbiome datasets in Duvallet et al. (2017): http://dx.doi.org/10.1038/s41467-017-01973-8. Additional information about the datasets are in the [MicrobiomeHD github repo](https://github.com/cduvallet/microbiomeHD). MicrobiomeHD contains all 28 datasets of human gut microbiome studies in health and disease. In our study, we used only 3 datasets: cdi_schubert, ibd_gevers and ob_goodrich.
 
 If you have any problem, please contact me via email: dangthanhtung91@vn-bml.com  
