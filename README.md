@@ -28,7 +28,7 @@ from sklearn.utils import check_array
 from sklearn.metrics.cluster import adjusted_rand_score
 from DMM_Dirichlet_SVVS import DMM_SVVS
 ```
-
+MicrobiomeHD github repo https://github.com/cduvallet/microbiomeHD
 - Import example dataset in  ```data/ ```
 ```
 dataset_A_count = pd.read_csv("datasetA_count.csv", index_col=0)
@@ -70,6 +70,10 @@ df = {'Microbiome_species': dataset_A_count.columns, 'Selected_probility': selec
 clus_selected = pd.DataFrame(data=df).sort_values(by = 'Selected_probility',ascending=False).reset_index(drop=True)
 ``` 
 
+## Get the human gut microbiome datasets
+
+We used human gut microbiome datasets in Duvallet et al. (2017): http://dx.doi.org/10.1038/s41467-017-01973-8. Additional information about the datasets are in the [MicrobiomeHD github repo](https://github.com/cduvallet/microbiomeHD). MicrobiomeHD contains all 28 datasets of human gut microbiome studies in health and disease. In our study, we used only 3 datasets: cdi_schubert, ibd_gevers and ob_goodrich.
+
 ## Directory structure
 
 ### Data
@@ -79,7 +83,7 @@ clus_selected = pd.DataFrame(data=df).sort_values(by = 'Selected_probility',asce
     - datasetA_meta.csv: metadata that includes a true label of groups for dataset A 
     - datasetA_tree.nwk: phylogenetic tree for dataset A
 - Please follow instructions in the [MicrobiomeHD github repo](https://github.com/cduvallet/microbiomeHD) to get OTU tables, metadata and phylogenetic tree for datasets B, C and D 
--      
+- Please follow instructions in the [HMP16SData]([https://github.com/cduvallet/microbiomeHD](https://bioconductor.org/packages/release/data/experiment/vignettes/HMP16SData/inst/doc/HMP16SData.html)) to get OTU tables, metadata and phylogenetic tree for dataset E     
 
 ### Source code
 
@@ -90,8 +94,5 @@ All of the code is in the ```src/``` folder:
 - Figure_phylogenetic_analysis.R: file that is used to make phylogenetic analysis for each dataset. Outputs of this file are Figures 2, S4, S5 and S7. 
 - Figure_NMDS_analysis.R: file that is used to make NMDS figures. Outputs of this file are Figures 1 and 3.
 
-## Get the human gut microbiome datasets
-
-We used human gut microbiome datasets in Duvallet et al. (2017): http://dx.doi.org/10.1038/s41467-017-01973-8. Additional information about the datasets are in the [MicrobiomeHD github repo](https://github.com/cduvallet/microbiomeHD). MicrobiomeHD contains all 28 datasets of human gut microbiome studies in health and disease. In our study, we used only 3 datasets: cdi_schubert, ibd_gevers and ob_goodrich.
 
 If you have any problem, please contact me via email: dangthanhtung91@vn-bml.com  
