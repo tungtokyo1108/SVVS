@@ -72,13 +72,13 @@ clus_selected = pd.DataFrame(data=df).sort_values(by = 'Selected_probility',asce
 
 ## Get the human gut microbiome datasets
 
-We used human gut microbiome datasets in Duvallet et al. (2017): http://dx.doi.org/10.1038/s41467-017-01973-8. Additional information about the datasets are in the [MicrobiomeHD github repo](https://github.com/cduvallet/microbiomeHD). MicrobiomeHD contains all 28 datasets of human gut microbiome studies in health and disease. In our study, we used only 3 datasets: cdi_schubert, ibd_gevers and ob_goodrich.
+We used human gut microbiome datasets in Duvallet et al. (2017): http://dx.doi.org/10.1038/s41467-017-01973-8. Additional information about the datasets are in the [MicrobiomeHD github repo](https://github.com/cduvallet/microbiomeHD). MicrobiomeHD contains all 28 datasets of human gut microbiome studies in health and disease. In our paper, we used only 3 datasets: cdi_schubert (dataset B), ibd_gevers (dataset C) and ob_goodrich (dataset D).
 
 ## Directory structure
 
 ### Data
 
-- The main files include: 
+- The main files for dataset A in our paper include: 
     - datasetA_count.csv: a OTU count table for dataset A 
     - datasetA_meta.csv: metadata that includes a true label of groups for dataset A 
     - datasetA_tree.nwk: phylogenetic tree for dataset A
