@@ -29,7 +29,7 @@ from sklearn.metrics.cluster import adjusted_rand_score
 from DMM_Dirichlet_SVVS import DMM_SVVS
 ```
 
-- Import example dataset 
+- Import example dataset in  ```data/ ```
 ```
 dataset_A_count = pd.read_csv("dataset_A_count.csv", index_col=0)
 dataset_A_meta = pd.read_csv("dataset_A_meta.csv", index_col=0)
