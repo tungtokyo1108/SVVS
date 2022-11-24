@@ -31,8 +31,8 @@ from DMM_Dirichlet_SVVS import DMM_SVVS
 
 - Import example dataset in  ```data/ ```
 ```
-dataset_A_count = pd.read_csv("dataset_A_count.csv", index_col=0)
-dataset_A_meta = pd.read_csv("dataset_A_meta.csv", index_col=0)
+dataset_A_count = pd.read_csv("datasetA_count.csv", index_col=0)
+dataset_A_meta = pd.read_csv("datasetA_meta.csv", index_col=0)
 ```
 
 - Set up parameters for SVVS function
@@ -68,10 +68,7 @@ ARI_score = adjusted_rand_score(clus_labeled["Predicted_cluster"], clus_labeled[
 selected_features = prob_selected.sum(axis=0)/prob_selected.shape[0]
 df = {'Microbiome_species': dataset_A_count.columns, 'Selected_probility': selected_features}
 clus_selected = pd.DataFrame(data=df).sort_values(by = 'Selected_probility',ascending=False).reset_index(drop=True)
-```
-### Phylogenetic analysis
-
-- Run Phylogenetic_analysis.R in Rstudio 
+``` 
 
 ## Directory structure
 
