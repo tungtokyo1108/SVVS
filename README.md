@@ -73,6 +73,18 @@ clus_selected = pd.DataFrame(data=df).sort_values(by = 'Selected_probility',asce
 
 - Run Phylogenetic_analysis.R in Rstudio 
 
+## Directory structure
+
+### Data
+
+### Source code
+
+All of the code is in the ```src/``` folder:
+
+- DMM_Dirichlet_SVVS.py: file contains Python codes for SVVS algorithm
+- SVVS_application.py: file that is used to run SVVS algorithm for a sepecific dataset 
+- Phylogenetic_analysis.R: file that is used to make phylogenetic analysis for each dataset. Outputs of this file are Figures 2, S4, S5. 
+
 ## Get the human gut microbiome datasets
 
 We used human gut microbiome datasets in Duvallet et al. (2017): http://dx.doi.org/10.1038/s41467-017-01973-8. Additional information about the datasets are in the MicrobiomeHD github repo https://github.com/cduvallet/microbiomeHD. MicrobiomeHD contains all 28 datasets of human gut microbiome studies in health and disease. In our study, we used only 3 datasets: cdi_schubert, ibd_gevers and ob_goodrich.
