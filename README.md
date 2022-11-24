@@ -87,7 +87,7 @@ We used human gut microbiome datasets in Duvallet et al. (2017): http://dx.doi.o
 
 ### Source code
 
-All of the code is in the ```src/``` folder which you can use to re-make the analyses, figures and tables in the paper:
+All of the code is in the ```src/``` folder, you can use to re-make the analyses, figures and tables in the paper:
 
 - DMM_Dirichlet_SVVS.py: file contains Python codes for SVVS algorithm
 - SVVS_application.py: file that is used to run SVVS algorithm for a sepecific dataset. Outputs of this file are ARI score for each dataset in Table 3 and a number of selected species in Table S1 and S2.
