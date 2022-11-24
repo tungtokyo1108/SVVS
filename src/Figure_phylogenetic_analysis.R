@@ -3,9 +3,7 @@ library(phytools)
 library(ape)
 library(dplyr)
 library(tidyr)
-library(stringi)
-library(stringr)
-library(ggtree)
+
 
 tree_full <- read_tree_greengenes("datasetA_tree.nwk")
 plot(tree_full, show.tip.label = F, use.edge.length = T,show.node.label=FALSE,
