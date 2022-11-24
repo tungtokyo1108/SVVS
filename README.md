@@ -91,7 +91,7 @@ All of the code is in the ```src/``` folder which you can use to re-make the ana
 
 - DMM_Dirichlet_SVVS.py: file contains Python codes for SVVS algorithm
 - SVVS_application.py: file that is used to run SVVS algorithm for a sepecific dataset. Outputs of this file are ARI score for each dataset in Table 3 and a number of selected species in Table S1 and S2.
-- Figure_phylogenetic_analysis.R: file that is used to make phylogenetic analysis for each dataset. Outputs of this file are Figures 2. 
+- Figure_phylogenetic_analysis.R: file that is used to make phylogenetic analysis for each dataset. Output of this file is Figures 2. 
 - Figure_NMDS_analysis.R: file that is used to make NMDS figures. Outputs of this file are Figures 1 and 3.
 
 
