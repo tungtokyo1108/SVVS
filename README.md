@@ -83,7 +83,7 @@ We used human gut microbiome datasets in Duvallet et al. (2017): http://dx.doi.o
     - datasetA_meta.csv: metadata that includes a true label of groups for dataset A 
     - datasetA_tree.nwk: phylogenetic tree for dataset A
 - Please follow instructions in the [MicrobiomeHD github repo](https://github.com/cduvallet/microbiomeHD) to get OTU tables, metadata and phylogenetic tree for datasets B, C and D 
-- Please follow instructions in the [HMP16SData]  (https://bioconductor.org/packages/release/data/experiment/vignettes/HMP16SData/inst/doc/HMP16SData.html) o get OTU tables, metadata and phylogenetic tree for dataset E     
+- Please follow instructions in the [HMP16SData](https://bioconductor.org/packages/release/data/experiment/vignettes/HMP16SData/inst/doc/HMP16SData.html) o get OTU tables, metadata and phylogenetic tree for dataset E     
 
 ### Source code
 
