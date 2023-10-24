@@ -19,7 +19,6 @@ git clone https://github.com/tungtokyo1108/SVVS.git
 import warnings
 from abc import ABCMeta, abstractmethod
 from time import time 
-import mathFigure_phylogenetic_analysis.R
 import numpy as np
 import pandas as pd
 import seaborn as sns
