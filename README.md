@@ -8,7 +8,7 @@
 git clone https://github.com/tungtokyo1108/SVVS.git 
 ```
 
-- Install Anaconda and Rstudio in your PC. 
+- Install Anaconda and Rstudio in your or server PC. 
     - https://www.anaconda.com/products/distribution
     - https://posit.co/download/rstudio-desktop/
 
