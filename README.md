@@ -1,6 +1,10 @@
 # Stochastic variational variable selection - SVVS
 [![DOI](https://zenodo.org/badge/387373494.svg)](https://zenodo.org/badge/latestdoi/387373494)
 
+## Publication
+Dang, T., Kumaishi, K., Usui, E. et al. Stochastic variational variable selection for high-dimensional microbiome data. Microbiome 10, 236 (2022). https://doi.org/10.1186/s40168-022-01439-0 https://doi.org/10.1101/2022.12.25.521906
+
+
 ## Getting Started 
 ### Get the SVVS Source
 
