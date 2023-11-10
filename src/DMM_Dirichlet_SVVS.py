@@ -24,7 +24,7 @@ from sklearn.utils.extmath import row_norms
 
 
 def sigmoid(x):
-    "Numerically stable sigmoid function."
+    "Numerically stable sigmoid function"
     n_samples, n_features = x.shape
     z = np.empty((n_samples, n_features))
     for i in range(n_samples):
