@@ -185,7 +185,7 @@ def _run_trial(X, true_labels, config, trial_seed):
     -------
     dict with keys: ari, nmi, K_estimated, elapsed, config, trial_seed, error
     """
-    params = {**FIXED_PARAMS, **config, "random_state": 42}
+    params = {**FIXED_PARAMS, **config, "random_state": trial_seed}
     t0     = _time.time()
     error  = None
 
@@ -276,7 +276,7 @@ def random_search(X,
     # ── Header ────────────────────────────────────────────────────────────
     if verbose:
         print("\nDMM-SVVS v2.4 — Random Hyperparameter Search  (scored by ARI)")
-        print("=" * 76)
+        print("=" * 90)
         print(f"  n_trials      = {n_trials},   master_seed = {master_seed}")
         print(f"  K_max            : {K_max_range}   [uniform int]")
         print(f"  mfm_delta        : {mfm_delta_range}   [log-uniform, δ > 0]")
@@ -284,7 +284,7 @@ def random_search(X,
         print(f"  selection_prior  : {selection_prior_range}  [uniform float]")
         print(f"  prune_threshold  : {prune_threshold_range}  [log-uniform]")
         print(f"  Fixed: {json.dumps(FIXED_PARAMS)}")
-        print("=" * 76)
+        print("=" * 90)
         _print_row_header()
 
     all_results = []
@@ -304,7 +304,7 @@ def random_search(X,
                          prune_threshold_range)
         trial_seed = int(master_rng.integers(0, 2**31))
 
-        result = _run_trial(X, true_labels, config, 42)
+        result = _run_trial(X, true_labels, config, trial_seed)
         all_results.append(result)
 
         is_best = result["ari"] > best_ari
@@ -320,16 +320,18 @@ def random_search(X,
     all_results.sort(key=lambda r: (r["ari"], r["nmi"]), reverse=True)
 
     if verbose:
-        print("=" * 76)
+        print("=" * 90)
         print(f"\n  Best ARI    : {best_ari:.4f}")
         print(f"  Best NMI    : {best_result['nmi']:.4f}")
         print(f"  Best K_est  : {best_result['K_estimated']}")
+        print(f"  Best seed   : {best_result['trial_seed']}")
         print(f"  Best config :")
         for k, v in best_config.items():
             if isinstance(v, float):
                 print(f"      {k:<22s} = {v:.6f}")
             else:
                 print(f"      {k:<22s} = {v}")
+        print(f"      {'random_state':<22s} = {best_result['trial_seed']}")
 
     return {
         "best_config": best_config,
@@ -468,8 +470,8 @@ def refit_best(X,
 
 def _print_row_header():
     print(f"  {'#':>5}  {'ARI':>7}  {'NMI':>7}  {'K_est':>5}  {'sec':>5}  "
-          f"{'K_max':>5}  {'δ':>8}  {'γ':>8}  {'sel':>6}  {'prune':>8}")
-    print("  " + "-" * 76)
+          f"{'K_max':>5}  {'δ':>8}  {'γ':>8}  {'sel':>6}  {'prune':>8}  {'seed':>12}")
+    print("  " + "-" * 90)
 
 
 def _print_trial_row(trial, result, is_best):
@@ -481,7 +483,8 @@ def _print_trial_row(trial, result, is_best):
           f"{c['K_max']:5d}  {c['mfm_delta']:8.4f}  "
           f"{c['mfm_gamma']:8.4f}  "
           f"{c['selection_prior']:6.3f}  "
-          f"{c['prune_threshold']:8.5f}"
+          f"{c['prune_threshold']:8.5f}  "
+          f"{result['trial_seed']:>12d}"
           f"{marker}{err}")
 
 
@@ -498,8 +501,8 @@ def print_top_k(search_result, top_k=10):
     n_shown = len(results)
     print(f"\nTop-{n_shown} configurations (by ARI):")
     print(f"  {'Rank':>4}  {'ARI':>7}  {'NMI':>7}  {'K_est':>5}  "
-          f"{'K_max':>5}  {'δ':>8}  {'γ':>8}  {'sel':>6}  {'prune':>8}")
-    print("  " + "-" * 76)
+          f"{'K_max':>5}  {'δ':>8}  {'γ':>8}  {'sel':>6}  {'prune':>8}  {'seed':>12}")
+    print("  " + "-" * 90)
     for rank, r in enumerate(results, 1):
         c = r["config"]
         print(f"  {rank:4d}  {r['ari']:7.4f}  {r['nmi']:7.4f}  "
@@ -507,7 +510,8 @@ def print_top_k(search_result, top_k=10):
               f"{c['K_max']:5d}  {c['mfm_delta']:8.4f}  "
               f"{c['mfm_gamma']:8.4f}  "
               f"{c['selection_prior']:6.3f}  "
-              f"{c['prune_threshold']:8.5f}")
+              f"{c['prune_threshold']:8.5f}  "
+              f"{r['trial_seed']:>12d}")
 
 
 def save_results(search_result, path="random_search_v2_4_results.json"):

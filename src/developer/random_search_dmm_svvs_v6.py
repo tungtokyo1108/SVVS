@@ -7,11 +7,10 @@ Random Search Hyperparameter Optimisation for DMM_SVVS_Variational_v6
 Optimises seven hyperparameters of DMM_SVVS_Variational_v6 by maximising
 the Adjusted Rand Index (ARI) against ground-truth labels.
 
-The only structural difference from random_search_dmm_svvs_v2_5.py is that
-the NIG-specific parameters (nig_sigma, nig_alpha, selection_prior) are
-replaced by the SSL-specific parameters (lambda0, lambda1, kappa, init_xi).
-All sampling strategies, output formatting, refit logic, and utility
-functions are preserved unchanged.
+For each trial a random_state (model seed) is drawn independently from the
+master RNG and stored alongside the result, so the seed used at each
+iteration is always printed and fully reproducible — matching the behaviour
+of random_search_dmm_svvs_v2_5.py.
 
 Hyperparameters searched
 ------------------------
@@ -26,19 +25,20 @@ Hyperparameters searched
                              shrinkage.  Log-uniform to cover several orders
                              of magnitude (e.g. 10 to 500).
   lambda1          float    (0, ∞)            log-uniform float
-                             Slab  Laplace rate (λ₁ ≪ λ₀).
+                             Slab Laplace rate (λ₁ ≪ λ₀).
                              Log-uniform on a small range (e.g. 0.01 to 10).
   kappa            float    (0, 1)            uniform float
-                             Controls the Beta hyperparameter
-                             βθ = S^(1+κ)/log(S).  Larger κ → stronger
-                             sparsity pressure.  Uniform on (0, 1) is
-                             appropriate because κ is already on a bounded
-                             meaningful scale.
+                             Controls βθ = S^(1+κ)/log(S).  Larger κ →
+                             stronger sparsity pressure.
   init_xi          float    (0, 1)            uniform float
                              Initial slab-inclusion probability warm-start.
-                             Uniform: any starting point in (0,1) is a
-                             priori equally plausible.
   prune_threshold  float    (0, 1)            log-uniform float
+
+random_state is drawn independently per trial from the master RNG (range
+0 .. 2³¹−1) and is NOT part of the hyperparameter config dict.  It is
+stored as a top-level "trial_seed" key in every result record so that:
+  - the seed used at each iteration is printed in the live table, and
+  - refit_best can reproduce the exact best trial by re-using that seed.
 
 All other model parameters (zeta, eta, tol, max_iter, prune_start,
 prune_every, min_clusters) are fixed during the search.
@@ -79,12 +79,15 @@ Returns
 -------
 random_search() returns a dict with:
     best_config  : dict  — hyperparameters of the best trial
+                           (does NOT include random_state)
     best_result  : dict  — full result record of the best trial
     all_results  : list  — all trial records sorted by ARI descending
 
 Each result record contains:
     ari, nmi, K_estimated, n_selected, elapsed, config, trial_seed,
     error (or None)
+    trial_seed is stored at the top level (not inside config), matching
+    the structure of random_search_dmm_svvs_v2_5.py.
 """
 
 import json
@@ -167,6 +170,10 @@ def _sample_config(rng,
     nu, lambda0, lambda1, prune_threshold are sampled log-uniformly because
     they are positive scale parameters spanning multiple orders of magnitude.
     kappa and init_xi are sampled uniformly on their bounded (0, 1) domains.
+    K_max is sampled as a uniform integer.
+
+    random_state is NOT part of the config dict — it is drawn separately
+    in the search loop and stored as trial_seed in the result record.
 
     An additional constraint is enforced: lambda0 > lambda1 (spike must be
     tighter than slab).  If the draw violates this, lambda0 and lambda1 are
@@ -204,15 +211,16 @@ def _run_trial(X, true_labels, config, trial_seed):
     Fit one model configuration and return ARI, NMI, K, n_selected,
     elapsed time.
 
-    The trial_seed is passed as random_state so each trial is independently
-    reproducible.  On any exception (numerical failure, invalid config) the
-    trial returns ARI = NMI = -1 and records the error message.
+    trial_seed is passed as random_state to the model so each trial is
+    independently reproducible.  On any exception (numerical failure,
+    invalid config) the trial returns ARI = NMI = -1 and records the
+    error message.
 
     Parameters
     ----------
     X            : (N, S) float array
     true_labels  : (N,)   int array
-    config       : dict   — sampled hyperparameters
+    config       : dict   — sampled hyperparameters (without random_state)
     trial_seed   : int    — random_state for this trial
 
     Returns
@@ -244,8 +252,8 @@ def _run_trial(X, true_labels, config, trial_seed):
         "K_estimated": K_est,
         "n_selected":  n_sel,
         "elapsed":     elapsed,
-        "config":      config,
-        "trial_seed":  trial_seed,
+        "config":      config,       # hyperparameters only (no random_state)
+        "trial_seed":  trial_seed,   # stored at top level, printed per row
         "error":       error,
     }
 
@@ -270,6 +278,10 @@ def random_search(X,
     Random search over DMM_SVVS_Variational_v6 hyperparameters,
     maximising Adjusted Rand Index (ARI) against ground-truth labels.
 
+    At each trial a fresh random_state (model seed) is drawn from the master
+    RNG and printed in the live table alongside the selected hyperparameters,
+    matching the behaviour of random_search_dmm_svvs_v2_5.py.
+
     Parameters
     ----------
     X : np.ndarray, shape (N, S)
@@ -284,9 +296,7 @@ def random_search(X,
     nu_range : tuple (float_low, float_high)
         Search range for the DP concentration parameter ν > 0.
         Sampled log-uniformly.  Smaller ν → fewer active clusters.
-        'auto' (ν = 1/K_max) corresponds to approximately 0.07–0.33 for
-        K_max ∈ [3, 15].  A range of (0.01, 2.0) covers conservative to
-        permissive cluster formation.  Example: (0.01, 2.0)
+        Example: (0.01, 2.0)
     lambda0_range : tuple (float_low, float_high)
         Search range for the spike Laplace rate λ₀.
         Must satisfy λ₀ > λ₁.  The constraint is enforced at sampling time
@@ -307,6 +317,9 @@ def random_search(X,
         Sampled log-uniformly.  Example: (1e-4, 0.1)
     master_seed : int
         Seed for the search RNG — makes the entire run reproducible.
+        Both the hyperparameter draws AND the per-trial random_state values
+        are derived from this single seed, so the full search is reproducible
+        by setting master_seed alone.
     verbose : bool
         Print a live per-trial progress table if True.
 
@@ -324,7 +337,7 @@ def random_search(X,
     # ── Header ────────────────────────────────────────────────────────────
     if verbose:
         print("\nDMM-SVVS v6 — Random Hyperparameter Search  (scored by ARI)")
-        print("=" * 86)
+        print("=" * 104)
         print(f"  n_trials      = {n_trials},   master_seed = {master_seed}")
         print(f"  K_max            : {K_max_range}   [uniform int]")
         print(f"  nu               : {nu_range}   [log-uniform, ν > 0]")
@@ -333,9 +346,10 @@ def random_search(X,
         print(f"  kappa            : {kappa_range}   [uniform float, κ ∈ (0,1)]")
         print(f"  init_xi          : {init_xi_range}   [uniform float, ξ₀ ∈ (0,1)]")
         print(f"  prune_threshold  : {prune_threshold_range}  [log-uniform]")
+        print(f"  random_state     : drawn per trial from master RNG  [uniform int, 0..2³¹−1]")
         print(f"  Constraint: λ₀ > λ₁ enforced by swap at sampling time")
         print(f"  Fixed: {json.dumps(FIXED_PARAMS)}")
-        print("=" * 86)
+        print("=" * 104)
         _print_row_header()
 
     all_results = []
@@ -344,8 +358,8 @@ def random_search(X,
     best_config = None
 
     for trial in range(1, n_trials + 1):
-        # Each trial gets its own deterministic seed derived from master_rng,
-        # so results are fully reproducible regardless of trial order.
+        # Draw hyperparameter config and trial_seed independently from
+        # master_rng so the full run is reproducible from master_seed alone.
         config     = _sample_config(
                          master_rng,
                          K_max_range,
@@ -373,17 +387,19 @@ def random_search(X,
     all_results.sort(key=lambda r: (r["ari"], r["nmi"]), reverse=True)
 
     if verbose:
-        print("=" * 86)
+        print("=" * 104)
         print(f"\n  Best ARI    : {best_ari:.4f}")
         print(f"  Best NMI    : {best_result['nmi']:.4f}")
         print(f"  Best K_est  : {best_result['K_estimated']}")
         print(f"  Best n_sel  : {best_result['n_selected']}")
+        print(f"  Best seed   : {best_result['trial_seed']}")
         print(f"  Best config :")
         for k, v in best_config.items():
             if isinstance(v, float):
                 print(f"      {k:<22s} = {v:.6f}")
             else:
                 print(f"      {k:<22s} = {v}")
+        print(f"      {'random_state':<22s} = {best_result['trial_seed']}")
 
     return {
         "best_config": best_config,
@@ -422,8 +438,8 @@ def refit_best(X,
         Total number of independent random restarts.
         The original trial seed counts as the first restart.
     max_iter     : int
-        Maximum CAVI iterations for each restart.
-        Higher than the search budget (default 500) for a more refined fit.
+        Maximum CAVI iterations for each restart (default 500, higher than
+        the search budget for a more refined final fit).
     verbose      : bool
 
     Returns
@@ -446,6 +462,7 @@ def refit_best(X,
         safe_config["prune_threshold"] = 0.1
 
     # Build restart seeds: original trial seed first, then derived extras.
+    # This guarantees the best search result is always reproduced.
     rng_extra   = np.random.default_rng(trial_seed + 1)
     n_extra     = max(n_restarts - 1, 0)
     extra_seeds = rng_extra.integers(0, 2**31, size=n_extra).tolist()
@@ -525,8 +542,8 @@ def refit_best(X,
 def _print_row_header():
     print(f"  {'#':>5}  {'ARI':>7}  {'NMI':>7}  {'K_est':>5}  {'n_sel':>5}  "
           f"{'sec':>5}  {'K_max':>5}  {'nu':>8}  {'λ₀':>8}  "
-          f"{'λ₁':>7}  {'κ':>6}  {'ξ₀':>6}  {'prune':>8}")
-    print("  " + "-" * 96)
+          f"{'λ₁':>7}  {'κ':>6}  {'ξ₀':>6}  {'prune':>8}  {'seed':>12}")
+    print("  " + "-" * 110)
 
 
 def _print_trial_row(trial, result, is_best):
@@ -539,7 +556,7 @@ def _print_trial_row(trial, result, is_best):
           f"{c['K_max']:5d}  {c['nu']:8.4f}  "
           f"{c['lambda0']:8.2f}  {c['lambda1']:7.4f}  "
           f"{c['kappa']:6.3f}  {c['init_xi']:6.3f}  "
-          f"{c['prune_threshold']:8.5f}"
+          f"{c['prune_threshold']:8.5f}  {result['trial_seed']:>12d}"
           f"{marker}{err}")
 
 
@@ -557,8 +574,8 @@ def print_top_k(search_result, top_k=10):
     print(f"\nTop-{n_shown} configurations (by ARI):")
     print(f"  {'Rank':>4}  {'ARI':>7}  {'NMI':>7}  {'K_est':>5}  {'n_sel':>5}  "
           f"{'K_max':>5}  {'nu':>8}  {'λ₀':>8}  "
-          f"{'λ₁':>7}  {'κ':>6}  {'ξ₀':>6}  {'prune':>8}")
-    print("  " + "-" * 96)
+          f"{'λ₁':>7}  {'κ':>6}  {'ξ₀':>6}  {'prune':>8}  {'seed':>12}")
+    print("  " + "-" * 110)
     for rank, r in enumerate(results, 1):
         c = r["config"]
         print(f"  {rank:4d}  {r['ari']:7.4f}  {r['nmi']:7.4f}  "
@@ -566,7 +583,7 @@ def print_top_k(search_result, top_k=10):
               f"{c['K_max']:5d}  {c['nu']:8.4f}  "
               f"{c['lambda0']:8.2f}  {c['lambda1']:7.4f}  "
               f"{c['kappa']:6.3f}  {c['init_xi']:6.3f}  "
-              f"{c['prune_threshold']:8.5f}")
+              f"{c['prune_threshold']:8.5f}  {r['trial_seed']:>12d}")
 
 
 def save_results(search_result, path="random_search_v6_results.json"):

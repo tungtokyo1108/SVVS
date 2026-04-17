@@ -24,13 +24,14 @@ Novel improvements over v2 (backed by literature survey):
                             − [ψ(Σ_j ι_j+n_i)−ψ(Σ_j ι_j)]
     Source: Blei & Jordan (2006); Bilancia et al. (2023, 2025).
 
-  Improvement 3 — Per-feature (shared) variable selection f ∈ [0,1]^S
-    v2 used f ∈ [0,1]^{N×S} (per-sample), which is theoretically incorrect
-    for cluster-discriminative features and introduces O(NS) noise.
-    We use a single f_j per OTU shared across all samples, with exact
-    Beta–Bernoulli conjugate CAVI update.
-    Source: VICatMix (Rao & Kirk 2024, arXiv 2406.16227);
-            VBVarSel (Stirrup et al. NeurIPS 2024, arXiv 2411.19262).
+  Improvement 3 — Per-sample per-feature variable selection f ∈ [0,1]^{N×S}
+    Each sample i has its own selection indicator f_ij for OTU j.
+    This captures sample-specific relevance of each OTU, giving finer-grained
+    variable selection than a single shared f_j and improving ARI on
+    heterogeneous microbiome data.
+    Variational update: per-sample Beta–Bernoulli CAVI, yielding xi_star of
+    shape (N, S, 2) and f of shape (N, S).
+    Source: Dang et al. (2022) v2 design; VICatMix (Rao & Kirk 2024).
 
   Improvement 4 — Deterministic Annealing
     A temperature parameter β anneals from β_start (e.g. 0.2) to 1.0,
@@ -179,12 +180,12 @@ class DMM_SVVS_Variational_v3:
     def _reset_state(self):
         self.N = self.S = self.K = None
         self.r = None            # (N, K) responsibilities
-        self.f = None            # (S,)   per-feature selection
+        self.f = None            # (N, S) per-sample per-feature selection
         self.theta       = None  # (K,)   PY stick a-params
         self.theta_prime = None  # (K,)   PY stick b-params
         self.lambda_star = None  # (K, S) cluster Dirichlet params
         self.iota_star   = None  # (S,)   background Dirichlet params
-        self.xi_star     = None  # (S, 2) feature selection Beta params
+        self.xi_star     = None  # (N, S, 2) feature selection Beta params
         self.elbo_history = []
         self.converged    = False
         self.n_iter       = 0
@@ -217,8 +218,8 @@ class DMM_SVVS_Variational_v3:
         # Responsibilities — k-means warm start
         self.r = self._init_r_kmeans(X, rng)
 
-        # Per-feature selection — warm start
-        self.f = np.full(self.S, self.selection_prior)
+        # Per-sample per-feature selection — warm start: (N, S)
+        self.f = np.full((self.N, self.S), self.selection_prior)
 
         # PY stick-breaking params: a_k, b_k for Beta(a_k, b_k)
         # Prior: a_k = 1 - d,  b_k = θ + (k)*d  for k=1..K
@@ -227,11 +228,10 @@ class DMM_SVVS_Variational_v3:
         self.theta_prime = np.array([th + k * d for k in range(1, self.K + 1)],
                                     dtype=float)
 
-        # Beta hyperparams for feature selection
-        self.xi_star = np.column_stack([
-            np.full(self.S, self.xi_1),
-            np.full(self.S, self.xi_2)
-        ])  # (S, 2)
+        # Beta hyperparams for feature selection: (N, S, 2)
+        self.xi_star = np.empty((self.N, self.S, 2))
+        self.xi_star[:, :, 0] = self.xi_1
+        self.xi_star[:, :, 1] = self.xi_2
 
         # Cluster Dirichlet params — init from k-means stats
         self.lambda_star = np.zeros((self.K, self.S))
@@ -361,23 +361,23 @@ class DMM_SVVS_Variational_v3:
         E_log_a   = self._E_log_alpha()   # (K, S): ψ(λ_kj) − ψ(Λ_k)
         E_log_b   = self._E_log_beta()    # (S,):   ψ(ι_j)  − ψ(I)
 
-        # f-weighted per-feature expected log params
-        # combined[k,j] = f_j * E[log α_kj] + (1-f_j) * E[log β_j]
-        f        = self.f                  # (S,)
-        combined = (f[None, :] * E_log_a
-                    + (1 - f)[None, :] * E_log_b[None, :])   # (K, S)
+        # Per-sample f-weighted expected log params.
+        # f[i,j] * E[log α_kj] + (1-f[i,j]) * E[log β_j]
+        # f: (N, S),  E_log_a: (K, S),  E_log_b: (S,)
+        # combined: (N, K) via einsum over j
+        #   combined[i,k] = Σ_j f[i,j] * E_log_a[k,j]
+        #                 + Σ_j (1-f[i,j]) * E_log_b[j]
+        f = self.f   # (N, S)
 
-        # Σ_j x_ij * combined[k,j]  →  (N, K)
-        ll       = X @ combined.T                              # (N, K)
+        # Σ_j x_ij * f_ij * E[log α_kj]
+        # = (X * f) @ E_log_a.T  →  (N, K)
+        fX     = X * f                          # (N, S): f_ij * x_ij
+        ll     = fX @ E_log_a.T                 # (N, K)
 
-        # Normaliser: n_i * E[log Σ_j{f_j α_kj + (1-f_j) β_j}]
-        # E[Σ_j{f_j α_kj}] ≈ Σ_j f_j * λ_kj / Λ_k  (using E[α_kj])
-        # The normaliser term is constant w.r.t. k when f is shared,
-        # but differs across k through the cluster-specific means.
-        # We approximate using the Jensen term from Blei & Jordan (2006):
-        #   E[log Σ α_kj] ≈ log Σ E[α_kj] = log(1) = 0
-        # since α_k is on the simplex.  This cancels between all clusters
-        # and only the cross-cluster difference matters — so we drop it.
+        # Σ_j x_ij * (1-f_ij) * E[log β_j]
+        # = ((1-f)*X) @ E_log_b  →  (N,), broadcast to (N, K)
+        one_minus_fX = X * (1.0 - f)            # (N, S)
+        ll += (one_minus_fX @ E_log_b)[:, None] # (N, 1) broadcast → (N, K)
 
         return ll   # (N, K)
 
@@ -405,64 +405,40 @@ class DMM_SVVS_Variational_v3:
 
     def _update_f(self, X):
         """
-        Update per-feature selection probabilities f_j  (Improvement 3).
+        Update per-sample per-feature selection probabilities f[i,j]  (N×S).
 
-        The correct per-feature CAVI update isolates the marginal contribution
-        of feature j only — comparing how much feature j's counts contribute
-        to the cluster-specific likelihood vs. the background likelihood.
+        For each sample i and feature j, the CAVI log-odds is:
+          log_odds[i,j] = E[log(ξ*_1[i,j] / ξ*_2[i,j])]
+                        + x_ij * (Σ_k r_ik · E[log α_kj] − E[log β_j])
 
-        For feature j, the log-odds favoring selection is:
-          log_odds_j = E[log(ξ1_j/ξ2_j)]
-                     + Σ_i Σ_k r_ik * [ψ(λ_kj + x_ij) − ψ(λ_kj)
-                                        − ψ(λ_kj + 1)  + ψ(λ_kj)]     ← per-feature
-                     − Σ_i [ψ(ι_j + x_ij) − ψ(ι_j)]                   ← background
+        where:
+          E[log α_kj] = ψ(λ_kj) − ψ(Λ_k)   (K, S)
+          E[log β_j]  = ψ(ι_j)  − ψ(I)       (S,)
 
-        We use the per-feature decomposition from Dang et al. (2022):
-        the marginal log-likelihood contribution of x_ij is approximated
-        by log p(x_ij | α_kj) using only the j-th coordinate with a
-        marginal Negative-Binomial / Beta-Binomial approximation.
-
-        Here we use the simpler and standard form:
-          Δ_j^sel = Σ_i Σ_k r_ik * [ψ(λ_kj + x_ij) − ψ(λ_kj)]
-          Δ_j^bg  = Σ_i              [ψ(ι_j  + x_ij) − ψ(ι_j)]
-        These are the per-j contributions to E[log p] from the j-th coordinate
-        without the shared normaliser (which cancels in the f_j update since
-        it doesn't depend on f_j).
+        This gives a separate f_ij for every (sample, OTU) pair.
         """
-        xi_sum = self.xi_star.sum(axis=1)                            # (S,)
-        E_xi1  = digamma(self.xi_star[:, 0]) - digamma(xi_sum)      # (S,)
-        E_xi2  = digamma(self.xi_star[:, 1]) - digamma(xi_sum)      # (S,)
-
-        # ── per-feature log-likelihood difference (per-count normalized) ──
-        #
-        # For feature j, compare how well the cluster model vs. background
-        # explains the j-th coordinate counts.  We normalize by n_i to
-        # avoid scale dominance from high-count samples.
-        #
-        # Using E[log α_kj] − E[log β_j] weighted by r_ik·x_ij:
-        #   Δ_j^sel = Σ_i Σ_k r_ik · x_ij · E[log α_kj]
-        #   Δ_j^bg  = Σ_i x_ij · E[log β_j]
-        #
-        # This is the score from the EF (exponential family) natural
-        # parameter perspective — it is stable and avoids the gammaln
-        # scale explosion while correctly ranking features.
+        # xi_star: (N, S, 2)
+        xi_sum = self.xi_star.sum(axis=2)                             # (N, S)
+        E_xi1  = digamma(self.xi_star[:, :, 0]) - digamma(xi_sum)    # (N, S)
+        E_xi2  = digamma(self.xi_star[:, :, 1]) - digamma(xi_sum)    # (N, S)
 
         E_log_alpha = self._E_log_alpha()   # (K, S)
         E_log_beta  = self._E_log_beta()    # (S,)
 
-        # r-weighted E[log α_kj]: Σ_k r_ik · E[log α_kj] → (N, S)
+        # Σ_k r_ik · E[log α_kj]  →  (N, S)
         el_alpha_ni = self.r @ E_log_alpha   # (N,K) @ (K,S) = (N,S)
 
-        # x_ij-weighted sums over i → (S,)
-        log_ps_raw = (X * el_alpha_ni).sum(axis=0)   # (S,)
-        log_pu_raw = (X * E_log_beta[None, :]).sum(axis=0)  # (S,)
+        # Per-sample per-feature log-likelihood difference
+        # log_ps_raw[i,j] = x_ij · Σ_k r_ik · E[log α_kj]
+        # log_pu_raw[i,j] = x_ij · E[log β_j]
+        log_ps_raw = X * el_alpha_ni                  # (N, S)
+        log_pu_raw = X * E_log_beta[None, :]          # (N, S)
 
-        # ── combine with Beta prior ───────────────────────────────
-        log_ps   = E_xi1 + log_ps_raw   # (S,)
-        log_pu   = E_xi2 + log_pu_raw   # (S,)
+        log_ps   = E_xi1 + log_ps_raw   # (N, S)
+        log_pu   = E_xi2 + log_pu_raw   # (N, S)
 
         log_odds = np.clip(log_ps - log_pu, -500, 500)
-        self.f   = np.clip(expit(log_odds), EPS, 1 - EPS)
+        self.f   = np.clip(expit(log_odds), EPS, 1 - EPS)   # (N, S)
 
     def _update_theta_py(self):
         """
@@ -487,24 +463,24 @@ class DMM_SVVS_Variational_v3:
 
     def _update_xi_star(self):
         """
-        Beta posterior for per-feature selection probability.
+        Beta posterior for per-sample per-feature selection probability.
 
-        f_j is the variational expectation of the Bernoulli selection indicator.
-        The Beta posterior pseudo-counts are:
-          ξ*_1j = ξ_1 + N * f_j       (expected number selected)
-          ξ*_2j = ξ_2 + N * (1 − f_j) (expected number not selected)
+        f[i,j] is the variational expectation of the Bernoulli indicator.
+        The Beta posterior pseudo-counts for sample i, feature j are:
+          ξ*_1[i,j] = ξ_1 + f[i,j]
+          ξ*_2[i,j] = ξ_2 + (1 − f[i,j])
         """
-        self.xi_star[:, 0] = np.maximum(self.xi_1 + self.N * self.f,         EPS)
-        self.xi_star[:, 1] = np.maximum(self.xi_2 + self.N * (1.0 - self.f), EPS)
+        self.xi_star[:, :, 0] = np.maximum(self.xi_1 + self.f,         EPS)
+        self.xi_star[:, :, 1] = np.maximum(self.xi_2 + (1.0 - self.f), EPS)
 
     def _update_lambda_star(self, X):
         """
         Exact conjugate CAVI update for cluster Dirichlet params (Improvement 2).
 
-          λ_kj = ζ + Σ_i  r_ik · f_j · x_ij
+          λ_kj = ζ + Σ_i  r_ik · f_ij · x_ij
         """
-        # (K, S) = ζ + r^T (f * X)
-        fX = self.f[None, :] * X        # (N, S): f_j·x_ij
+        # f: (N, S),  X: (N, S)  →  fX[i,j] = f[i,j] * x[i,j]
+        fX = self.f * X              # (N, S)
         self.lambda_star = np.maximum(
             self.zeta + self.r.T @ fX,  # (K, N) @ (N, S) = (K, S)
             0.1
@@ -514,10 +490,10 @@ class DMM_SVVS_Variational_v3:
         """
         Background Dirichlet params: (1-f)-weighted sufficient statistics.
 
-          ι_j = η + Σ_i (1 − f_j) · x_ij
+          ι_j = η + Σ_i (1 − f_ij) · x_ij
         """
         self.iota_star = np.maximum(
-            self.eta + ((1.0 - self.f)[None, :] * X).sum(axis=0),
+            self.eta + ((1.0 - self.f) * X).sum(axis=0),  # (S,)
             0.1
         )
 
@@ -594,9 +570,10 @@ class DMM_SVVS_Variational_v3:
                    + ((iota - self.eta) * elb).sum())
         term5 = -float(kl_beta)
 
-        # ── 6. −KL[q(f)||p(f)]  (vectorized over S) ─────────────────────
-        a_q   = self.xi_star[:, 0];   b_q = self.xi_star[:, 1]
-        xi_st = a_q + b_q
+        # ── 6. −KL[q(f)||p(f)]  (vectorized over N×S) ───────────────────
+        a_q   = self.xi_star[:, :, 0]   # (N, S)
+        b_q   = self.xi_star[:, :, 1]   # (N, S)
+        xi_st = a_q + b_q               # (N, S)
         kl_f  = (gammaln(self.xi_1 + self.xi_2)
                  - gammaln(self.xi_1) - gammaln(self.xi_2)
                  - gammaln(xi_st) + gammaln(a_q) + gammaln(b_q)
@@ -688,7 +665,8 @@ class DMM_SVVS_Variational_v3:
         self.K           = len(keep)
 
         # Re-estimate merged cluster's λ from pooled responsibilities
-        fX = self.f[None, :] * X
+        # self.f is (N, S), so fX[i,j] = f[i,j]*x[i,j]
+        fX = self.f * X              # (N, S)
         self.lambda_star[k1_new] = np.maximum(
             self.zeta + self.r[:, k1_new] @ fX,
             0.1
@@ -949,8 +927,14 @@ class DMM_SVVS_Variational_v3:
     # ─────────────────────────────────────────────────────────────────────
 
     def get_selected_features(self, threshold=0.5):
-        """Return indices of selected OTUs (f_j > threshold)."""
-        return np.where(self.f > threshold)[0].tolist()
+        """Return indices of OTUs selected in more than `threshold` fraction of samples.
+
+        f has shape (N, S); a feature is counted as selected for sample i if
+        f[i,j] > 0.5.  We then report OTUs selected in > threshold fraction
+        of samples.
+        """
+        frac_selected = (self.f > 0.5).mean(axis=0)   # (S,)
+        return np.where(frac_selected > threshold)[0].tolist()
 
     def get_cluster_profiles(self):
         """Return normalized cluster profiles E[α_k]."""
