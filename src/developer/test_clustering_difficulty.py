@@ -717,9 +717,9 @@ if __name__ == "__main__":
     X, true_labels, difficulty_info = generate_moderate_overlap_clusters(N=400, S=5000, K=K, separation=0.1)
     
     X, true_labels, difficulty_info = generate_high_overlap_clusters(N=400, S=5000, K=K, 
-                                                                     separation=0.1,
+                                                                     separation=0.2,
                                                                      imbalance=0.0,
-                                                                     zero_inflation=0.20,
+                                                                     zero_inflation=0.80,
                                                                      signal_fraction=0.15)
     
     X, true_labels, difficulty_info = generate_very_hard_clusters(N=400, S=500, K=K, separation=1.0)
@@ -748,12 +748,12 @@ if __name__ == "__main__":
     )
     
     model = DMM_SVVS_Variational_v2(
-        K_max=10,
-        nu=10,
+        K_max=12,
+        nu=1.343116,
         zeta=1.0,
         eta=1.0,
-        prune_threshold=0.2,
-        selection_prior=0.1,
+        prune_threshold=0.255117,
+        selection_prior=0.3596,
         max_iter=200,
         verbose=1,
         random_state=42
@@ -824,12 +824,17 @@ if __name__ == "__main__":
 ###############################################################################
 import pandas as pd
 from sklearn.utils import check_array
+import csv
 
 dataset_A_count = pd.read_csv("datasetA_count.csv", index_col=0)
 dataset_A_meta = pd.read_csv("datasetA_meta.csv", index_col=0)
 
 dataset_A_count = pd.read_csv("CDI_count_data.csv", index_col=0)
 dataset_A_meta = pd.read_csv("cdi_meta.csv", index_col=0)
+
+
+dataset_A_count = pd.read_csv("Blueberry_ASVs_table.tsv", sep='\t', index_col=0).T
+dataset_A_meta = pd.read_csv("Blueberry_metadata.tsv", sep='\t', index_col=0)
 
 
 X = check_array(dataset_A_count, dtype=[np.float64, np.float32])
@@ -849,6 +854,11 @@ unique_labels = dataset_A_meta['DiseaseState'].unique()
 label_map = {label: i for i, label in enumerate(unique_labels)}
 print(f"Label mapping: {label_map}")
 true_labels = dataset_A_meta['DiseaseState'].map(label_map).values
+
+unique_labels = dataset_A_meta['comparison'].unique()
+label_map = {label: i for i, label in enumerate(unique_labels)}
+print(f"Label mapping: {label_map}")
+true_labels = dataset_A_meta['comparison'].map(label_map).values
 
 adjusted_rand_score(true_labels, log_resp_max_)
 
@@ -880,12 +890,12 @@ model = DMM_SVVS_Variational(
 )
 
 model = DMM_SVVS_Variational_v2(
-    K_max=5,
-    nu=4.0618,
+    K_max=17,
+    nu=8.448216,
     zeta=1.0,
     eta=1.0,
-    prune_threshold=0.125478,
-    selection_prior=0.1125, 
+    prune_threshold=0.381477,
+    selection_prior=0.6759, 
     max_iter=200,
     verbose=1,
     random_state=42
@@ -895,7 +905,7 @@ from DMM_SVVS_Variational_v2_1 import DMM_SVVS_Variational_v2_1
 
 model = DMM_SVVS_Variational_v2_1(
     K_max=5,
-    nu=4.0618,
+    nu=0.6373,
     zeta=1.0,
     eta=1.0,
     prune_threshold=0.125478,
@@ -905,23 +915,128 @@ model = DMM_SVVS_Variational_v2_1(
     random_state=42
 )
 
+from DMM_SVVS_Variational_v2_3 import DMM_SVVS_Variational_v2_3
+
+model = DMM_SVVS_Variational_v2_3(
+    K_max=11,
+    py_discount=0.194639,
+    py_concentration=0.857911,
+    selection_prior=0.231146,
+    prune_threshold=0.465407,
+    per_sample_f=False,
+    max_iter=300,
+    verbose=1,
+    random_state=94067870
+)
+
+from DMM_SVVS_Variational_v2_4 import DMM_SVVS_Variational_v2_4
+
+model = DMM_SVVS_Variational_v2_4(
+    K_max=15,
+    mfm_delta=2.3004,
+    mfm_gamma=1.3267,
+    selection_prior=0.200,
+    per_sample_f=False,
+    prune_threshold=0.87191,
+    zeta=1.0,
+    eta=1.0,
+    xi_1=1.0,
+    xi_2=1.0,
+    tol=1e-4,
+    max_iter=500
+)
+
+from DMM_SVVS_Variational_v2_5 import DMM_SVVS_Variational_v2_5
+
+model = DMM_SVVS_Variational_v2_5(
+    K_max=8,
+    nig_sigma=0.866847,
+    nig_alpha=3.036012,
+    selection_prior=0.765325,
+    per_sample_f=False,
+    prune_threshold=0.120472,
+    zeta=1.0,
+    eta=1.0,
+    xi_1=1.0,
+    xi_2=1.0,
+    tol=1e-4,
+    max_iter=500,
+    random_state=48970940
+)
+
+
 model = DMM_SVVS_Variational_v3(
-        K_max=13,
-        py_discount=0.609,
-        py_concentration=3.734,
-        selection_prior=0.202,
-        prune_threshold=0.2690,
+        K_max=10,
+        py_discount=0.560,
+        py_concentration=0.340,
+        selection_prior=0.875,
+        prune_threshold=0.5535,
         zeta=0.5,
         eta=0.5,
         beta_start=0.2,
         anneal_iters=60,
         merge_every=15,
-        n_restarts=3,
+        n_restarts=1,
         max_iter=300,
         verbose=1,
         random_state=42
     )
 
+from DMM_SVVS_Variational_v4 import DMM_SVVS_Variational_v4
+
+model = DMM_SVVS_Variational_v4(
+    K_max=19, mfm_delta=1.5445, mfm_gamma=1.1089,
+    zeta=0.1, eta=0.1, xi_1=2.0, xi_2=1.0, selection_prior=0.924,
+    beta_start=0.2, anneal_iters=60,
+    merge_every=15, n_restarts=1, max_iter=300, verbose=1, random_state=42)
+
+from DMM_SVVS_Variational_v5 import DMM_SVVS_Variational_v5
+
+model = DMM_SVVS_Variational_v5(
+        K_max=18,
+        nig_sigma=0.7068, nig_alpha=2.7474,
+        zeta=0.1, eta=0.1, xi_1=2.0, xi_2=1.0, selection_prior=0.4457,
+        lambda_rep=0.2776,
+        beta_start=0.2, anneal_iters=60,
+        merge_every=15, n_restarts=1, max_iter=300, verbose=1, random_state=42)
+
+from DMM_SVVS_Variational_v6 import DMM_SVVS_Variational_v6
+
+model = DMM_SVVS_Variational_v6(
+    K_max=11,
+    nu=8.4683,
+    zeta=1.0,
+    eta=1.0,
+    prune_threshold=0.65965,
+    # ── SSL hyperparameters (replaces xi_1/xi_2/selection_prior) ──
+    lambda0=277.41,
+    lambda1=0.0148,
+    kappa=0.388,
+    init_xi=0.352,
+    max_iter=200,
+    verbose=1,
+    random_state=1720056778
+)
+
+from DMM_SVVS_Variational_v6_1 import DMM_SVVS_Variational_v6_1
+
+model = DMM_SVVS_Variational_v6_1(
+    K_max=11,
+    nu=1.686201,
+    zeta=1.0,
+    eta=1.0,
+    prune_threshold=0.651822,
+    # ── SSL hyperparameters (replaces xi_1/xi_2/selection_prior) ──
+    lambda0=20.984864,
+    lambda1=0.024534,
+    kappa=0.338209,
+    xi_ema=0.224204,
+    max_iter=200,
+    verbose=1,
+    random_state=1021568550
+)
+
+###############################################################################
 
 start_time = time()
 model.fit(X)
@@ -960,6 +1075,7 @@ print(f"  Silhouette: {silhouette:.3f}")
 #print(f"  Time: {elapsed:.2f}s")
 #print(f"  Converged: {model.converged_}")
 
+###############################################################################
 
 result = rsds.random_search_dmm_svvs(
         X            = X,
@@ -968,7 +1084,7 @@ result = rsds.random_search_dmm_svvs(
         n_seeds      = 3,
         max_iter_search = 120,
         max_iter_final  = 400,
-        K_lo   = 3,   K_hi   = 15,
+        K_lo   = 3,   K_hi   = 20,
         nu_lo  = 1.0, nu_hi  = 10,
         prune_lo = 0.10, prune_hi = 0.80,
         sel_lo = 0.10,   sel_hi   = 0.80,
@@ -1015,7 +1131,7 @@ results = resv2.random_search(
 
         # ── User-specified search ranges ──────────────────────────────────
         K_max_range           = (3, 15),
-        nu_range              = (1.0, 10.0),
+        nu_range              = (1.0, 10),
         zeta_range            = (1.0, 1.0),
         eta_range             = (1.0, 1.0),
         selection_prior_range = (0.1, 0.8),
@@ -1049,12 +1165,12 @@ import random_search_v3 as rsv3
 results = rsv3.random_search(
         X            = X,
         true_labels  = true_labels,
-        n_trials     = 20,
+        n_trials     = 100,
 
         # ── User-specified search ranges ──────────────────────────────────
         K_max_range            = (5, 20),
         py_discount_range      = (0.0, 0.8),
-        py_concentration_range = (0.1, 10.0),
+        py_concentration_range = (0.1, 10),
         selection_prior_range  = (0.1, 0.9),
         prune_threshold_range  = (0.1, 0.9),
 
@@ -1073,7 +1189,159 @@ best_model = rsv3.refit_best(
         verbose          = True,
     )
 
-#######################################################
+import random_search_v4 as rsv4
+
+results = rsv4.random_search(
+        X            = X,
+        true_labels  = true_labels,
+        n_trials     = 30,
+
+        # ── Specify ranges for each hyperparameter ──────────────────
+        K_max_range           = (5, 20),       # int range [low, high]
+        mfm_delta_range       = (0.1, 5.0),    # float range, log-uniform
+        mfm_gamma_range       = (0.5, 10.0),   # float range, log-uniform
+        selection_prior_range = (0.1, 0.95),  # float range [low, high)
+
+        master_seed  = 42,
+        verbose      = True,
+    )
+
+import random_search_v5 as rsv5
+
+results = rsv5.random_search(
+        X            = X,
+        true_labels  = true_labels,
+        n_trials     = 30,
+
+        K_max_range           = (5, 20),
+        nig_sigma_range       = (0.1, 0.9),
+        nig_alpha_range       = (0.1, 10.0),
+        selection_prior_range = (0.1, 0.9),
+        lambda_rep_range      = (0.01, 2.0),
+
+        master_seed = 42,
+        verbose     = True,
+    )
+
+###############################################################################
+
+import random_search_dmm_svvs_v2_3 as rsv2_3
+
+results = rsv2_3.random_search(
+    X           = X,
+    true_labels = true_labels,
+    n_trials    = 100,
+
+    # Search ranges (override defaults as needed for your data)
+    K_max_range            = (3, 20),
+    py_discount_range      = (0.0, 1.0),
+    py_concentration_range = (0.1, 10.0),
+    selection_prior_range  = (0.1, 0.95),
+    prune_threshold_range  = (0.1, 0.95),
+
+    master_seed = 42,
+    verbose     = True,
+)
+
+rsv2_3.print_top_k(results, top_k=10)
+
+
+import random_search_dmm_svvs_v2_4 as rsv2_4
+
+results = rsv2_4.random_search(
+    X           = X,           # (N, S) count matrix
+    true_labels = true_labels, # (N,)   ground-truth cluster labels
+    n_trials    = 100,
+
+    # Override any range you like; defaults are used for the rest
+    K_max_range           = (3, 20),
+    mfm_delta_range       = (1.0, 10.0),
+    mfm_gamma_range       = (1.0, 10.0),
+    selection_prior_range = (0.1, 0.95),
+    prune_threshold_range = (0.1, 0.95),
+
+    master_seed = 42,
+    verbose     = True,
+)
+
+rsv2_4.print_top_k(results, top_k=10)
+
+
+import random_search_dmm_svvs_v2_5 as rsv2_5
+
+results = rsv2_5.random_search(
+    X           = X,           # (N, S) count matrix
+    true_labels = true_labels, # (N,)   ground-truth cluster labels
+    n_trials    = 100,
+
+    # Override any range you like; defaults are used for the rest
+    K_max_range           = (3, 20),
+    nig_sigma_range       = (0.1, 0.9),
+    nig_alpha_range       = (1.0, 10.0),
+    selection_prior_range = (0.1, 0.95),
+    prune_threshold_range = (0.1, 0.95),
+
+    master_seed = 42,
+    verbose     = True,
+)
+
+rsv2_5.print_top_k(results, top_k=10)
+
+
+import random_search_dmm_svvs_v6 as rsv6
+
+results = rsv6.random_search(
+    X           = X,           # (N, S) count matrix
+    true_labels = true_labels, # (N,)   ground-truth cluster labels
+    n_trials    = 100,
+
+    # Override any range you like; defaults are used for the rest
+    K_max_range           = (3, 15),
+    nu_range              = (1.0, 10.0),
+    lambda0_range         = (10.0, 500.0),
+    lambda1_range         = (0.01, 10.0),
+    kappa_range           = (0.01, 0.5),
+    init_xi_range         = (0.01, 0.5),
+    prune_threshold_range = (0.1, 0.95),
+
+    master_seed = 42,
+    verbose     = True,
+)
+
+rsv6.print_top_k(results, top_k=10)
+
+best_model = rsv6.refit_best(
+    X           = X,
+    true_labels = true_labels,
+    best_result = results["best_result"],
+    n_restarts  = 5,
+    max_iter    = 500,
+    verbose     = True,
+)
+
+import random_search_dmm_svvs_v6_1 as rsv6_1
+
+results = rsv6_1.random_search(
+    X           = X,           # (N, S) count matrix
+    true_labels = true_labels, # (N,)   ground-truth cluster labels
+    n_trials    = 100,
+
+    # Override any range you like; defaults are used for the rest
+    K_max_range           = (3, 15),
+    nu_range              = (1.0, 10.0),
+    lambda0_range         = (10.0, 500.0),
+    lambda1_range         = (0.01, 10.0),
+    kappa_range           = (0.01, 0.5),
+    init_xi_range         = (0.01, 0.5),
+    prune_threshold_range = (0.1, 0.95),
+
+    master_seed = 42,
+    verbose     = True,
+)
+
+rsv6_1.print_top_k(results, top_k=10)
+
+###############################################################################
 
 visualize_clustering_results(
         X, true_labels, pred_labels,
